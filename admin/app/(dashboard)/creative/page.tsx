@@ -18,6 +18,16 @@ export default function CreativePage() {
         { key: 'isNew', label: 'New', kind: 'toggle', writeAs: 'is_new', align: 'center' },
         { key: 'isEnabled', label: 'Enabled', kind: 'toggle', writeAs: 'is_enabled', align: 'center' },
       ]}
+      createLabel="Add filter or effect"
+      createFields={[
+        { column: 'kind', label: 'Kind', kind: 'string', required: true, placeholder: 'filter', help: 'filter, effect, sticker_pack, text_style, font, transition' },
+        { column: 'slug', label: 'Slug', kind: 'string', required: true, placeholder: 'warm_glow' },
+        { column: 'name', label: 'Name', kind: 'string', required: true, placeholder: 'Warm Glow' },
+        { column: 'category', label: 'Category', kind: 'string', placeholder: 'colour' },
+        { column: 'params', label: 'Params (JSON)', kind: 'string', placeholder: '{"previewColor":"#FFB067","intensity":70}', help: 'what the renderer and the app preview read' },
+        { column: 'sort_order', label: 'Order', kind: 'number' },
+        { column: 'is_enabled', label: 'Enabled', kind: 'boolean' },
+      ]}
     />
   );
 }

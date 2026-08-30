@@ -34,6 +34,13 @@ function editor(options: {
   idColumn?: string;
   listSql: string;
   editable: Record<string, 'string' | 'number' | 'boolean'>;
+  /** Columns an operator may set when creating a row, and which are required. */
+  creatable?: {
+    fields: Record<string, 'string' | 'number' | 'boolean'>;
+    required: string[];
+  };
+  /** Only for tables that carry `deleted_at`. */
+  softDelete?: boolean;
 }): void {
   const idColumn = options.idColumn ?? 'id';
 
@@ -93,6 +100,123 @@ function editor(options: {
       res.json(ok({ saved: true }));
     }),
   );
+
+  /**
+   * Creating a row.
+   *
+   * `creatable` names the columns an operator may set and their types, exactly
+   * like `editable` — the incoming key selects from that list and is never
+   * interpolated. `required` are the ones a row is meaningless without.
+   */
+  if (options.creatable) {
+    const creatable = options.creatable;
+    const createSchema = z.object({
+      values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+    });
+
+    adminMoneyRouter.post(
+      `/admin/${options.path}`,
+      ...guard,
+      limits.write,
+      validate({ body: createSchema }),
+      asyncHandler(async (req, res) => {
+        const body = valid<{ body: typeof createSchema }>(req).body;
+
+        for (const column of creatable.required) {
+          const value = body.values[column];
+          if (value === undefined || value === '') {
+            throw new AppError('validation_failed', `'${column}' is required.`);
+          }
+        }
+
+        const columns: string[] = [];
+        const placeholders: string[] = [];
+        const params: Record<string, unknown> = {};
+
+        for (const [column, value] of Object.entries(body.values)) {
+          const kind = creatable.fields[column];
+          if (!kind) throw new AppError('validation_failed', `'${column}' cannot be set here.`);
+          if (kind === 'boolean' && typeof value !== 'boolean') {
+            throw new AppError('validation_failed', `'${column}' expects a boolean.`);
+          }
+          if (kind === 'number' && typeof value !== 'number') {
+            throw new AppError('validation_failed', `'${column}' expects a number.`);
+          }
+          columns.push(`\`${column}\``);
+          placeholders.push(`:${column}`);
+          params[column] = kind === 'boolean' ? (value ? 1 : 0) : value;
+        }
+
+        if (columns.length === 0) throw new AppError('validation_failed', 'Nothing to create.');
+
+        let insertId: number | string;
+        try {
+          const result = await execute(
+            `INSERT INTO \`${options.table}\` (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+            params,
+          );
+          insertId = result.insertId;
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          if (code === 'ER_DUP_ENTRY') {
+            throw new AppError('conflict', 'A row with that key already exists.');
+          }
+          // The table requires a column the form did not send. Naming it is the
+          // difference between a fixable message and "something went wrong".
+          if (code === 'ER_NO_DEFAULT_FOR_FIELD') {
+            const field = /Field '([^']+)'/.exec((err as Error).message)?.[1];
+            throw new AppError(
+              'validation_failed',
+              field ? `'${field}' is required and was not provided.` : 'A required column is missing.',
+            );
+          }
+          throw err;
+        }
+
+        await audit(req, {
+          module: options.module,
+          action: 'create',
+          targetType: options.table,
+          targetId: String(insertId),
+          newValue: body.values,
+        });
+        res.status(201).json(ok({ id: insertId }));
+      }),
+    );
+  }
+
+  /**
+   * Deleting a row.
+   *
+   * Soft where the table supports it, because a catalogue row is referenced by
+   * content that already exists: hard-deleting a music track would orphan every
+   * video that used it. Where there is no `deleted_at`, disabling is offered
+   * instead of removal and this route is not registered at all.
+   */
+  if (options.softDelete) {
+    adminMoneyRouter.delete(
+      `/admin/${options.path}/:id`,
+      ...guard,
+      limits.write,
+      asyncHandler(async (req, res) => {
+        const id = String(req.params.id);
+        const result = await execute(
+          `UPDATE \`${options.table}\` SET deleted_at = CURRENT_TIMESTAMP(3)
+            WHERE \`${idColumn}\` = :id AND deleted_at IS NULL`,
+          { id },
+        );
+        if (result.affectedRows === 0) throw new AppError('not_found', 'No such row.');
+
+        await audit(req, {
+          module: options.module,
+          action: 'delete',
+          targetType: options.table,
+          targetId: id,
+        });
+        res.json(ok({ deleted: true }));
+      }),
+    );
+  }
 }
 
 editor({
@@ -107,6 +231,13 @@ editor({
     coins: 'number', bonus_coins: 'number', base_price: 'number', discount_percent: 'number',
     is_popular: 'boolean', is_enabled: 'boolean', sort_order: 'number',
   },
+  creatable: {
+    fields: {
+      coins: 'number', bonus_coins: 'number', base_price: 'number', base_currency: 'string',
+      discount_percent: 'number', is_popular: 'boolean', is_enabled: 'boolean', sort_order: 'number',
+    },
+    required: ['coins', 'base_price', 'base_currency'],
+  },
 });
 
 editor({
@@ -118,6 +249,13 @@ editor({
                    (SELECT COUNT(*) FROM gift_transactions t WHERE t.gift_id = g.id) AS timesSent
               FROM gifts g ORDER BY g.sort_order, g.coins`,
   editable: { name: 'string', icon: 'string', coins: 'number', is_featured: 'boolean', is_active: 'boolean', sort_order: 'number' },
+  creatable: {
+    fields: {
+      slug: 'string', name: 'string', icon: 'string', coins: 'number',
+      is_featured: 'boolean', is_active: 'boolean', sort_order: 'number',
+    },
+    required: ['slug', 'name', 'icon', 'coins'],
+  },
 });
 
 editor({
@@ -130,6 +268,13 @@ editor({
   editable: {
     label: 'string', account_name: 'string', account_number: 'string',
     instructions: 'string', is_enabled: 'boolean',
+  },
+  creatable: {
+    fields: {
+      slug: 'string', label: 'string', kind: 'string', account_name: 'string',
+      account_number: 'string', currencies: 'string', instructions: 'string', is_enabled: 'boolean',
+    },
+    required: ['slug', 'label', 'kind', 'currencies', 'account_name', 'account_number'],
   },
 });
 
@@ -145,6 +290,13 @@ editor({
     label: 'string', field_label: 'string', min_amount: 'number', fee_percent: 'number',
     processing_time: 'string', is_enabled: 'boolean',
   },
+  creatable: {
+    fields: {
+      slug: 'string', label: 'string', kind: 'string', field_label: 'string', network: 'string',
+      min_amount: 'number', fee_percent: 'number', processing_time: 'string', is_enabled: 'boolean',
+    },
+    required: ['slug', 'label', 'kind', 'field_label'],
+  },
 });
 
 editor({
@@ -156,6 +308,13 @@ editor({
                    is_enabled AS isEnabled, updated_at AS updatedAt
               FROM currency_rates ORDER BY code`,
   editable: { label: 'string', symbol: 'string', coins_per_unit: 'number', min_amount: 'number', is_enabled: 'boolean' },
+  creatable: {
+    fields: {
+      code: 'string', label: 'string', symbol: 'string',
+      coins_per_unit: 'number', min_amount: 'number', is_enabled: 'boolean',
+    },
+    required: ['code', 'label', 'symbol', 'coins_per_unit'],
+  },
 });
 
 editor({
@@ -169,6 +328,14 @@ editor({
     title: 'string', description: 'string', target: 'number', reward_coins: 'number',
     is_enabled: 'boolean', sort_order: 'number',
   },
+  creatable: {
+    fields: {
+      task_key: 'string', title: 'string', description: 'string', icon: 'string',
+      metric: 'string', target: 'number', reward_coins: 'number', reward_label: 'string',
+      is_enabled: 'boolean', sort_order: 'number',
+    },
+    required: ['task_key', 'title', 'metric', 'target', 'reward_coins'],
+  },
 });
 
 editor({
@@ -179,6 +346,13 @@ editor({
                    is_boolean AS isBoolean, is_enabled AS isEnabled, sort_order AS sortOrder
               FROM monetization_criteria ORDER BY sort_order`,
   editable: { label: 'string', required: 'number', is_enabled: 'boolean', sort_order: 'number' },
+  creatable: {
+    fields: {
+      criterion_key: 'string', label: 'string', metric: 'string', required: 'number',
+      unit: 'string', is_boolean: 'boolean', is_enabled: 'boolean', sort_order: 'number',
+    },
+    required: ['criterion_key', 'label', 'metric', 'required'],
+  },
 });
 
 // ── Payments ledger view ──

@@ -16,6 +16,16 @@ export default function GiftsPage() {
         { key: 'isFeatured', label: 'Featured', kind: 'toggle', writeAs: 'is_featured', align: 'center' },
         { key: 'isActive', label: 'Active', kind: 'toggle', writeAs: 'is_active', align: 'center' },
       ]}
+      createLabel="Add gift"
+      createFields={[
+        { column: 'slug', label: 'Slug', kind: 'string', required: true, placeholder: 'rose' },
+        { column: 'name', label: 'Name', kind: 'string', required: true, placeholder: 'Rose' },
+        { column: 'icon', label: 'Icon', kind: 'string', required: true, placeholder: '🌹', help: 'an emoji' },
+        { column: 'coins', label: 'Coins', kind: 'number', required: true, placeholder: '10' },
+        { column: 'sort_order', label: 'Order', kind: 'number' },
+        { column: 'is_featured', label: 'Featured', kind: 'boolean' },
+        { column: 'is_active', label: 'Active', kind: 'boolean' },
+      ]}
     />
   );
 }

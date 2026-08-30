@@ -15,6 +15,16 @@ export default function MonetizationPage() {
         { key: 'unit', label: 'Unit', kind: 'readonly' },
         { key: 'isEnabled', label: 'Enforced', kind: 'toggle', writeAs: 'is_enabled', align: 'center' },
       ]}
+      createLabel="Add criterion"
+      createFields={[
+        { column: 'criterion_key', label: 'Key', kind: 'string', required: true, placeholder: 'followers_1000' },
+        { column: 'label', label: 'Label', kind: 'string', required: true, placeholder: '1,000 followers' },
+        { column: 'metric', label: 'Metric', kind: 'string', required: true, placeholder: 'followers' },
+        { column: 'required', label: 'Required', kind: 'number', required: true, placeholder: '1000' },
+        { column: 'unit', label: 'Unit', kind: 'string', placeholder: 'followers' },
+        { column: 'sort_order', label: 'Order', kind: 'number' },
+        { column: 'is_enabled', label: 'Enforced', kind: 'boolean' },
+      ]}
     />
   );
 }

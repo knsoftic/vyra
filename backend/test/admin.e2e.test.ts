@@ -318,3 +318,117 @@ test('the user detail view resolves by public id and hides nothing it needs', as
   const missing = await api('GET', '/api/v1/admin/users/01ZZZZZZZZZZZZZZZZZZZZZZZZ', undefined, admin.token);
   assert.equal(missing.status, 404);
 });
+
+// ── Creating and deleting catalogue rows ──
+
+test('an operator can add a category, and the allow-list still holds', async () => {
+  const admin = await registerAdmin();
+  const slug = `e2e_cat_${randomBytes(4).toString('hex')}`;
+
+  const created = await api<{ id: number }>(
+    'POST', '/api/v1/admin/categories',
+    { values: { slug, name: 'E2E Category', sort_order: 99, is_enabled: true } },
+    admin.token,
+  );
+  assert.equal(created.status, 201, JSON.stringify(created.body.error));
+
+  const list = await api<{ items: { slug: string }[] }>(
+    'GET', '/api/v1/admin/categories', undefined, admin.token,
+  );
+  assert.ok(list.body.data!.items.some((c) => c.slug === slug), 'it is in the list');
+
+  // A column that is not declared creatable is refused, interpolation-shaped or not.
+  const evil = await api('POST', '/api/v1/admin/categories',
+    { values: { slug: `${slug}_x`, name: 'X', 'name); DROP TABLE users; --': 'x' } }, admin.token);
+  assert.equal(evil.status, 400);
+
+  const missing = await api('POST', '/api/v1/admin/categories',
+    { values: { name: 'No slug' } }, admin.token);
+  assert.equal(missing.status, 400, 'a required column is required');
+
+  const duplicate = await api('POST', '/api/v1/admin/categories',
+    { values: { slug, name: 'Again' } }, admin.token);
+  assert.equal(duplicate.status, 409, 'a duplicate key is a conflict, not a crash');
+
+  await execute('DELETE FROM categories WHERE slug = ?', [slug]).catch(() => undefined);
+});
+
+test('creating is staff-only, like every other admin write', async () => {
+  const user = await registerUser();
+  const res = await api('POST', '/api/v1/admin/categories',
+    { values: { slug: 'nope', name: 'Nope' } }, user.token);
+  assert.equal(res.status, 403);
+});
+
+test('a soft-deletable row is hidden, not destroyed', async () => {
+  const admin = await registerAdmin();
+  const publicId = `e2e_trk_${randomBytes(4).toString('hex')}`;
+
+  const created = await api<{ id: number }>(
+    'POST', '/api/v1/admin/music',
+    {
+      values: {
+        public_id: publicId,
+        title: 'E2E Track',
+        artist: 'E2E',
+        audio_url: 'https://example.com/track.mp3',
+        duration_sec: 30,
+        is_enabled: true,
+      },
+    },
+    admin.token,
+  );
+  assert.equal(created.status, 201, JSON.stringify(created.body.error));
+  const id = created.body.data!.id;
+
+  const removed = await api('DELETE', `/api/v1/admin/music/${id}`, undefined, admin.token);
+  assert.equal(removed.status, 200);
+
+  const list = await api<{ items: { id: number }[] }>(
+    'GET', '/api/v1/admin/music', undefined, admin.token,
+  );
+  assert.ok(!list.body.data!.items.some((t) => t.id === id), 'gone from the list');
+
+  // The row itself survives: videos that used the track must not be orphaned.
+  const row = await queryOne<{ c: number }>(
+    'SELECT COUNT(*) AS c FROM music_tracks WHERE id = ? AND deleted_at IS NOT NULL',
+    [id],
+  );
+  assert.equal(Number(row?.c), 1, 'soft-deleted, still on disk');
+
+  await execute('DELETE FROM music_tracks WHERE id = ?', [id]).catch(() => undefined);
+});
+
+test('a payment method can be added — the preflight blocker is fixable in the panel', async () => {
+  const admin = await registerAdmin();
+  const slug = `e2e_pay_${randomBytes(4).toString('hex')}`;
+
+  const created = await api<{ id: number }>(
+    'POST', '/api/v1/admin/payment-methods',
+    {
+      values: {
+        slug,
+        label: 'E2E Bank',
+        kind: 'bank',
+        currencies: '["PKR"]',
+        account_name: 'Real Business Name',
+        account_number: 'PK00 1234 5678',
+        is_enabled: true,
+      },
+    },
+    admin.token,
+  );
+  assert.equal(created.status, 201, JSON.stringify(created.body.error));
+
+  // A column the table requires but the form omitted names itself, rather than
+  // surfacing as "something went wrong on our end".
+  const incomplete = await api<{ message: string }>(
+    'POST', '/api/v1/admin/payment-methods',
+    { values: { slug: `${slug}_x`, label: 'X', kind: 'bank', account_name: 'X', account_number: 'X' } },
+    admin.token,
+  );
+  assert.equal(incomplete.status, 400);
+  assert.match(incomplete.body.error!.message, /currencies/);
+
+  await execute('DELETE FROM payment_methods WHERE slug LIKE ?', [`${slug}%`]).catch(() => undefined);
+});

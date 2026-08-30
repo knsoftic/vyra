@@ -207,6 +207,13 @@ function catalogueEditor(options: {
   idColumn?: string;
   listSql: string;
   editable: Record<string, 'string' | 'number' | 'boolean'>;
+  /** Columns an operator may set when creating a row, and which are required. */
+  creatable?: {
+    fields: Record<string, 'string' | 'number' | 'boolean'>;
+    required: string[];
+  };
+  /** Only for tables that carry `deleted_at`. */
+  softDelete?: boolean;
 }): void {
   const idColumn = options.idColumn ?? 'id';
 
@@ -264,6 +271,123 @@ function catalogueEditor(options: {
       res.json(ok({ saved: true }));
     }),
   );
+
+  /**
+   * Creating a row.
+   *
+   * `creatable` names the columns an operator may set and their types, exactly
+   * like `editable` — the incoming key selects from that list and is never
+   * interpolated. `required` are the ones a row is meaningless without.
+   */
+  if (options.creatable) {
+    const creatable = options.creatable;
+    const createSchema = z.object({
+      values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+    });
+
+    adminContentRouter.post(
+      `/admin/${options.path}`,
+      ...guard,
+      limits.write,
+      validate({ body: createSchema }),
+      asyncHandler(async (req, res) => {
+        const body = valid<{ body: typeof createSchema }>(req).body;
+
+        for (const column of creatable.required) {
+          const value = body.values[column];
+          if (value === undefined || value === '') {
+            throw new AppError('validation_failed', `'${column}' is required.`);
+          }
+        }
+
+        const columns: string[] = [];
+        const placeholders: string[] = [];
+        const params: Record<string, unknown> = {};
+
+        for (const [column, value] of Object.entries(body.values)) {
+          const kind = creatable.fields[column];
+          if (!kind) throw new AppError('validation_failed', `'${column}' cannot be set here.`);
+          if (kind === 'boolean' && typeof value !== 'boolean') {
+            throw new AppError('validation_failed', `'${column}' expects a boolean.`);
+          }
+          if (kind === 'number' && typeof value !== 'number') {
+            throw new AppError('validation_failed', `'${column}' expects a number.`);
+          }
+          columns.push(`\`${column}\``);
+          placeholders.push(`:${column}`);
+          params[column] = kind === 'boolean' ? (value ? 1 : 0) : value;
+        }
+
+        if (columns.length === 0) throw new AppError('validation_failed', 'Nothing to create.');
+
+        let insertId: number | string;
+        try {
+          const result = await execute(
+            `INSERT INTO \`${options.table}\` (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+            params,
+          );
+          insertId = result.insertId;
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          if (code === 'ER_DUP_ENTRY') {
+            throw new AppError('conflict', 'A row with that key already exists.');
+          }
+          // The table requires a column the form did not send. Naming it is the
+          // difference between a fixable message and "something went wrong".
+          if (code === 'ER_NO_DEFAULT_FOR_FIELD') {
+            const field = /Field '([^']+)'/.exec((err as Error).message)?.[1];
+            throw new AppError(
+              'validation_failed',
+              field ? `'${field}' is required and was not provided.` : 'A required column is missing.',
+            );
+          }
+          throw err;
+        }
+
+        await audit(req, {
+          module: options.module,
+          action: 'create',
+          targetType: options.table,
+          targetId: String(insertId),
+          newValue: body.values,
+        });
+        res.status(201).json(ok({ id: insertId }));
+      }),
+    );
+  }
+
+  /**
+   * Deleting a row.
+   *
+   * Soft where the table supports it, because a catalogue row is referenced by
+   * content that already exists: hard-deleting a music track would orphan every
+   * video that used it. Where there is no `deleted_at`, disabling is offered
+   * instead of removal and this route is not registered at all.
+   */
+  if (options.softDelete) {
+    adminContentRouter.delete(
+      `/admin/${options.path}/:id`,
+      ...guard,
+      limits.write,
+      asyncHandler(async (req, res) => {
+        const id = String(req.params.id);
+        const result = await execute(
+          `UPDATE \`${options.table}\` SET deleted_at = CURRENT_TIMESTAMP(3)
+            WHERE \`${idColumn}\` = :id AND deleted_at IS NULL`,
+          { id },
+        );
+        if (result.affectedRows === 0) throw new AppError('not_found', 'No such row.');
+
+        await audit(req, {
+          module: options.module,
+          action: 'delete',
+          targetType: options.table,
+          targetId: id,
+        });
+        res.json(ok({ deleted: true }));
+      }),
+    );
+  }
 }
 
 catalogueEditor({
@@ -274,6 +398,10 @@ catalogueEditor({
                    (SELECT COUNT(*) FROM videos v WHERE v.category_id = categories.id AND v.deleted_at IS NULL) AS videos
               FROM categories ORDER BY sort_order, id`,
   editable: { name: 'string', icon: 'string', color: 'string', sort_order: 'number', is_enabled: 'boolean' },
+  creatable: {
+    fields: { slug: 'string', name: 'string', icon: 'string', color: 'string', sort_order: 'number', is_enabled: 'boolean' },
+    required: ['slug', 'name'],
+  },
 });
 
 catalogueEditor({
@@ -284,6 +412,10 @@ catalogueEditor({
                    created_at AS createdAt
               FROM hashtags ORDER BY video_count DESC LIMIT 200`,
   editable: { status: 'string', is_featured: 'boolean' },
+  creatable: {
+    fields: { tag: 'string', status: 'string', is_featured: 'boolean' },
+    required: ['tag'],
+  },
 });
 
 catalogueEditor({
@@ -294,6 +426,16 @@ catalogueEditor({
                    is_trending AS isTrending, is_enabled AS isEnabled, usage_count AS uses
               FROM music_tracks WHERE deleted_at IS NULL ORDER BY usage_count DESC LIMIT 200`,
   editable: { is_enabled: 'boolean', is_trending: 'boolean', licence_status: 'string', category: 'string' },
+  creatable: {
+    // `audio_url` points at the hosted file; the app streams from it directly.
+    fields: {
+      public_id: 'string', title: 'string', artist: 'string', category: 'string',
+      audio_url: 'string', cover_url: 'string', duration_sec: 'number',
+      licence_status: 'string', is_enabled: 'boolean', is_trending: 'boolean',
+    },
+    required: ['public_id', 'title', 'artist', 'audio_url', 'duration_sec'],
+  },
+  softDelete: true,
 });
 
 catalogueEditor({
@@ -304,6 +446,15 @@ catalogueEditor({
                    is_trending AS isTrending, is_new AS isNew, is_premium AS isPremium, usage_count AS uses
               FROM creative_assets ORDER BY kind, sort_order LIMIT 300`,
   editable: { is_enabled: 'boolean', is_trending: 'boolean', is_new: 'boolean', is_premium: 'boolean', sort_order: 'number' },
+  creatable: {
+    // `params` is the JSON the renderer reads — an LUT name, a shader setting.
+    fields: {
+      kind: 'string', slug: 'string', name: 'string', category: 'string', params: 'string',
+      sort_order: 'number', is_enabled: 'boolean', is_trending: 'boolean',
+      is_new: 'boolean', is_premium: 'boolean',
+    },
+    required: ['kind', 'slug', 'name'],
+  },
 });
 
 catalogueEditor({
@@ -330,6 +481,13 @@ catalogueEditor({
     business_enabled: 'boolean',
     verification_enabled: 'boolean',
     currency: 'string',
+  },
+  creatable: {
+    fields: {
+      code: 'string', name: 'string', currency: 'string', is_enabled: 'boolean',
+      ads_enabled: 'boolean', business_enabled: 'boolean', verification_enabled: 'boolean',
+    },
+    required: ['code', 'name', 'currency'],
   },
 });
 

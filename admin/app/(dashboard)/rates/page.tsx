@@ -44,6 +44,17 @@ export default function RatesPage() {
             { key: 'processingTime', label: 'Processing', kind: 'text', writeAs: 'processing_time' },
             { key: 'isEnabled', label: 'Enabled', kind: 'toggle', writeAs: 'is_enabled', align: 'center' },
           ]}
+          createLabel="Add payout method"
+          createFields={[
+            { column: 'slug', label: 'Slug', kind: 'string', required: true, placeholder: 'easypaisa_out' },
+            { column: 'label', label: 'Label', kind: 'string', required: true, placeholder: 'Easypaisa' },
+            { column: 'kind', label: 'Kind', kind: 'string', required: true, placeholder: 'easypaisa', help: 'usdt, bank, easypaisa, jazzcash' },
+            { column: 'field_label', label: 'What to ask the creator', kind: 'string', required: true, placeholder: 'Easypaisa number' },
+            { column: 'min_amount', label: 'Minimum', kind: 'number', placeholder: '50' },
+            { column: 'fee_percent', label: 'Fee %', kind: 'number', placeholder: '2' },
+            { column: 'processing_time', label: 'Processing time', kind: 'string', placeholder: '1-2 business days' },
+            { column: 'is_enabled', label: 'Enabled', kind: 'boolean' },
+          ]}
         />
         <CoinRates />
       </div>

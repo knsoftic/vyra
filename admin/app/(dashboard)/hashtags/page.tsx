@@ -16,6 +16,12 @@ export default function HashtagsPage() {
         { key: 'status', label: 'Status', kind: 'text', writeAs: 'status' },
         { key: 'isFeatured', label: 'Featured', kind: 'toggle', writeAs: 'is_featured', align: 'center' },
       ]}
+      createLabel="Add hashtag"
+      createFields={[
+        { column: 'tag', label: 'Tag', kind: 'string', required: true, placeholder: 'trending', help: 'without the #' },
+        { column: 'status', label: 'Status', kind: 'string', placeholder: 'normal', help: 'normal, official, sponsored, restricted, blocked' },
+        { column: 'is_featured', label: 'Featured', kind: 'boolean' },
+      ]}
     />
   );
 }

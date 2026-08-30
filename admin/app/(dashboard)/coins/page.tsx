@@ -17,6 +17,17 @@ export default function CoinsPage() {
         { key: 'isPopular', label: 'Popular', kind: 'toggle', writeAs: 'is_popular', align: 'center' },
         { key: 'isEnabled', label: 'Enabled', kind: 'toggle', writeAs: 'is_enabled', align: 'center' },
       ]}
+      createLabel="Add package"
+      createFields={[
+        { column: 'coins', label: 'Coins', kind: 'number', required: true, placeholder: '500' },
+        { column: 'base_price', label: 'Price', kind: 'number', required: true, placeholder: '4.99' },
+        { column: 'base_currency', label: 'Currency', kind: 'string', required: true, placeholder: 'USD' },
+        { column: 'bonus_coins', label: 'Bonus coins', kind: 'number' },
+        { column: 'discount_percent', label: 'Discount %', kind: 'number' },
+        { column: 'sort_order', label: 'Order', kind: 'number' },
+        { column: 'is_popular', label: 'Popular', kind: 'boolean' },
+        { column: 'is_enabled', label: 'Enabled', kind: 'boolean' },
+      ]}
     />
   );
 }

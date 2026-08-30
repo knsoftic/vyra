@@ -265,6 +265,12 @@ export const adminApi = {
   update: (path: string, id: string | number, changes: Record<string, string | number | boolean>) =>
     patch<{ saved: true }>(`/admin/${path}/${id}`, { changes }),
 
+  create: (path: string, values: Record<string, string | number | boolean>) =>
+    post<{ id: number | string }>(`/admin/${path}`, { values }),
+
+  remove: (path: string, id: string | number) =>
+    request<{ deleted: true }>(`/admin/${path}/${id}`, { method: 'DELETE' }),
+
   settings: () => get<{ settings: Record<string, unknown> }>('/admin/settings'),
   saveSetting: (key: string, value: unknown) => patch<{ saved: true }>('/admin/settings', { key, value }),
   emailStatus: () => get<EmailStatus>('/admin/settings/email/status'),
