@@ -33,17 +33,20 @@ export interface ApiDataOptions {
   /** Require a signed-in session. Defaults to true. */
   requiresAuth?: boolean;
   /**
-   * Whether an empty live result should fall back to the sample.
+   * Whether an empty live result should fall back to the sample. Default false.
    *
-   * True is right for discovery — an empty music library or category list is a
-   * screen nobody can use, and sample content keeps it explorable while the
-   * platform fills up.
+   * It used to default to true, on the reasoning that an empty screen is not
+   * useful. On a freshly launched platform that reasoning is a lie told at
+   * scale: every list is legitimately empty, so every screen filled with
+   * invented users, videos and follower counts. Signed-in people saw a busy
+   * app that did not exist.
    *
-   * False is right for anything belonging to the caller. "You have no
-   * verification applications" is a real, meaningful answer, and substituting a
-   * sample one tells someone they have an *approved* application they never
-   * made. Set false for my-tickets, my-applications, my-withdrawals and their
-   * kind.
+   * Sample content has exactly one honest use — the backend cannot be reached,
+   * which this hook already handles separately. When the server answers, its
+   * answer is shown, including when the answer is nothing.
+   *
+   * Pass true only for a screen that is demonstrating the product with no data
+   * behind it on purpose.
    */
   fallbackOnEmpty?: boolean;
 }
@@ -55,7 +58,7 @@ export function useApiData<T>(
   options: ApiDataOptions = {},
 ): ApiDataState<T> {
   const { backendStatus, isSignedIn } = useSession();
-  const { enabled = true, requiresAuth = true, fallbackOnEmpty = true } = options;
+  const { enabled = true, requiresAuth = true, fallbackOnEmpty = false } = options;
 
   const [data, setData] = useState<T>(fallback);
   const [source, setSource] = useState<DataSource>('sample');
@@ -74,10 +77,8 @@ export function useApiData<T>(
     try {
       const result = await fetcher();
 
-      // An empty live result is still live. For shared content a screen with
-      // nothing on it is not useful, so the sample stands in and `source` keeps
-      // reporting the truth. For the caller's own data an empty result is the
-      // answer, and a stand-in would be a false statement about them.
+      // An empty live result is still live, and by default it is shown as the
+      // empty thing it is.
       const isEmpty = fallbackOnEmpty && Array.isArray(result) && result.length === 0;
       if (isEmpty) {
         setData(fallback);

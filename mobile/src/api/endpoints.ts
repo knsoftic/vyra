@@ -256,6 +256,10 @@ export const discover = {
   trending: (limit = 12) =>
     api.get<VideoSummary[]>(`/discover/trending?limit=${limit}`).then((r) => r.data),
 
+  /** Videos from accounts the viewer follows, newest first. Needs a session. */
+  following: (limit = 12) =>
+    api.get<VideoSummary[]>(`/discover/following?limit=${limit}`).then((r) => r.data),
+
   creators: (limit = 10) =>
     api.get<{
       id: string;

@@ -460,6 +460,41 @@ videosRouter.get(
   }),
 );
 
+/**
+ * The Following feed: videos from accounts the viewer actually follows.
+ *
+ * Newest first, and nothing else — no ranking, no recommendation, no promoted
+ * slots. Someone who chose to follow an account asked for exactly this, and a
+ * "following" tab that reorders or pads what it shows is not a following tab.
+ *
+ * An empty answer is a real answer: it means the people you follow have not
+ * posted, or you follow nobody yet.
+ */
+videosRouter.get(
+  '/discover/following',
+  requireAuth,
+  limits.read,
+  validate({ query: discoverQuerySchema }),
+  asyncHandler(async (req: Request, res) => {
+    const { userId } = req as AuthedRequest;
+    const { limit } = valid<{ query: typeof discoverQuerySchema }>(req).query;
+
+    const rows = await query<VideoRow>(
+      `${SELECT}
+        WHERE ${PUBLIC_ONLY}
+          AND EXISTS (SELECT 1 FROM follows f
+                       WHERE f.follower_id = :viewerId
+                         AND f.followee_id = v.user_id
+                         AND f.deleted_at IS NULL)
+        ORDER BY v.published_at DESC, v.id DESC
+        LIMIT :limit`,
+      { viewerId: userId, limit: limit ?? 12 },
+    );
+
+    res.json(ok(rows.map(toSummary)));
+  }),
+);
+
 videosRouter.get(
   '/discover/creators',
   optionalAuth,

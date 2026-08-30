@@ -12,7 +12,13 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { feed as feedApi, ApiError, type FeedVideo } from '../api';
+import {
+  feed as feedApi,
+  discover as discoverApi,
+  toVideo as summaryToVideo,
+  ApiError,
+  type FeedVideo,
+} from '../api';
 import { useSession } from '../store/SessionState';
 import { forYouVideos, followingVideos, trendingVideos } from '../mock';
 import type { Video } from '../types';
@@ -125,31 +131,26 @@ export function useFeed(tab: FeedTab): FeedState {
         return;
       }
 
-      // Only For You is served by the recommendation engine today. Following and
-      // Trending keep their samples rather than pretending to be personalised.
-      if (tab !== 'for_you') {
-        setVideos(sampleFor(tab));
-        setSource('sample');
-        return;
-      }
-
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
       setError(null);
 
       try {
-        const result = await feedApi.forYou(10);
-        setRanker(result.ranker);
-
-        if (result.items.length === 0) {
-          // A real but empty feed. Samples keep the screen useful while the
-          // platform has no content, and `source` still reports the truth.
-          setVideos(sampleFor(tab));
-          setSource('sample');
+        // Each tab has its own real source. Following and Trending used to
+        // return samples unconditionally — a tab that always shows invented
+        // videos is worse than one that says it is empty.
+        if (tab === 'for_you') {
+          const result = await feedApi.forYou(10);
+          setRanker(result.ranker);
+          setVideos(result.items.map(toVideo));
+          setSource('live');
           return;
         }
 
-        setVideos(result.items.map(toVideo));
+        const summaries =
+          tab === 'following' ? await discoverApi.following(12) : await discoverApi.trending(12);
+        setRanker(null);
+        setVideos(summaries.map((summary) => summaryToVideo(summary)));
         setSource('live');
       } catch (err) {
         setVideos(sampleFor(tab));
