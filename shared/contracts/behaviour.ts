@@ -44,6 +44,16 @@ export const GRAPH_EVENTS = ['follow', 'unfollow', 'profile_visit'] as const;
 
 export const NAVIGATION_EVENTS = ['search', 'category_view', 'hashtag_click'] as const;
 
+/**
+ * Acts on a business account's own profile.
+ *
+ * Deliberately outside the ranking signals: tapping a shop's link tells the
+ * business something useful and tells the feed nothing, so `cta_click` carries
+ * no interest or affinity weight. It exists to be counted, not to be learned
+ * from.
+ */
+export const BUSINESS_EVENTS = ['cta_click'] as const;
+
 export const ALL_EVENTS = [
   ...EXPOSURE_EVENTS,
   ...WATCH_EVENTS,
@@ -51,6 +61,7 @@ export const ALL_EVENTS = [
   ...ENGAGEMENT_EVENTS,
   ...GRAPH_EVENTS,
   ...NAVIGATION_EVENTS,
+  ...BUSINESS_EVENTS,
 ] as const;
 
 export type BehaviourEvent = (typeof ALL_EVENTS)[number];

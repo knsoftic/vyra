@@ -667,3 +667,32 @@ test('one user cannot read another user\'s video audience', async () => {
     200,
   );
 });
+
+// ── Business events ──
+
+test('a link tap on a business profile is accepted and attributed', async () => {
+  const business = await registerUser();
+  const visitor = await registerUser();
+
+  const res = await api<{ accepted: number }>(
+    'POST', '/api/v1/events',
+    { events: [event({ event: 'cta_click', creatorId: business.publicId })] },
+    visitor.token,
+  );
+  assert.equal(res.status, 200, JSON.stringify(res.body.error));
+  assert.equal(res.body.data!.accepted, 1);
+
+  // Attributed to the business, not to the person who tapped — this is what
+  // makes the count readable from the business's own analytics.
+  const rows = await query<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM behaviour_events WHERE creator_id = ? AND event = 'cta_click'",
+    [business.id],
+  );
+  assert.equal(Number(rows[0]!.n), 1);
+});
+
+test('an event outside the taxonomy is still rejected', async () => {
+  const user = await registerUser();
+  const res = await api('POST', '/api/v1/events', { events: [event({ event: 'cta_hover' })] }, user.token);
+  assert.equal(res.status, 400, 'the allow-list is the whole point');
+});

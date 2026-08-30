@@ -55,8 +55,24 @@ export interface BusinessAnalytics {
   profileVisits: number;
   followerGrowth: number;
   views: number;
+  ctaClicks: number;
+
+  /** Percent change against the previous window of the same length. */
+  profileVisitsChange: number | null;
+  followerGrowthChange: number | null;
+  viewsChange: number | null;
+  ctaClicksChange: number | null;
+
+  /** Spend inside the window, not lifetime. */
   adSpendCoins: number;
+  adImpressions: number;
+  adReach: number;
+  adClicks: number;
+  /** Null while nothing has been clicked — a cost with no result is not zero. */
+  costPerClickCoins: number | null;
   campaignsRunning: number;
+  hasCampaigns: boolean;
+
   reachSeries: SeriesPoint[];
   visitSeries: SeriesPoint[];
   topCategories: { label: string; percent: number }[];

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, FlatList, ScrollView, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,7 @@ import { formatCount } from '../../utils/format';
 import { useApp } from '../../store/AppState';
 import { useSession } from '../../store/SessionState';
 import { useApiData } from '../../hooks/useApiData';
+import { useEventQueue } from '../../hooks/useEventQueue';
 import { videos as videosApi, users as usersApi, toUser, type VideoSummary } from '../../api';
 import type { PublicUser } from '../../../../shared/contracts/user';
 import type { User, Video } from '../../types';
@@ -90,6 +91,7 @@ function ProfileView({
   const [menuOpen, setMenuOpen] = useState(false);
 
   const { user: liveUser } = useSession();
+  const { track } = useEventQueue();
 
   const isMe = userId === me.id;
 
@@ -135,6 +137,21 @@ function ProfileView({
 
   const following = isFollowing(user);
   const isBusiness = user.accountCategory === 'business';
+
+  /**
+   * Someone else's profile, opened.
+   *
+   * `profile_visit` has been in the event taxonomy since Phase 6 and nothing
+   * ever emitted it, so every screen counting profile visits — the creator
+   * dashboard and the business one — was reading a column no writer wrote to.
+   * A metric that is permanently zero is worse than a missing one: it looks
+   * measured. Own-profile opens are excluded, or a business could inflate its
+   * own reach by pulling to refresh.
+   */
+  useEffect(() => {
+    if (isMe || !otherUser) return;
+    track('profile_visit', { creatorId: otherUser.id, feedSource: 'profile' });
+  }, [isMe, otherUser?.id, track]);
 
   // The creator's own videos, live where the account exists on the server.
   const { data: liveVideos, source: videosSource } = useApiData<VideoSummary[]>(
@@ -357,7 +374,13 @@ function ProfileView({
                   fullWidth
                   icon="open-outline"
                   style={{ marginTop: theme.spacing.sm }}
-                  onPress={() => Linking.openURL(user.cta!.url).catch(() => {})}
+                  onPress={() => {
+                    // Counted before the link opens: the app may be backgrounded
+                    // by the browser a moment later, and the queue flushes on
+                    // that transition.
+                    if (!isMe) track('cta_click', { creatorId: user.id });
+                    Linking.openURL(user.cta!.url).catch(() => {});
+                  }}
                 />
               ) : null}
             </View>

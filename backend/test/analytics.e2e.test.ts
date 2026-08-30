@@ -113,6 +113,55 @@ async function recordWatch(
   );
 }
 
+/** One behaviour event, written the way the ingest pipeline writes it. */
+async function recordBehaviour(
+  viewerId: number,
+  creatorId: number,
+  event: string,
+  daysAgo = 0,
+): Promise<void> {
+  await execute(
+    `INSERT INTO behaviour_events (user_id, event, creator_id, session_id, dedupe_key, created_at)
+     VALUES (:userId, :event, :creatorId, :sessionId, :dedupeKey,
+             DATE_SUB(NOW(3), INTERVAL :daysAgo DAY))`,
+    {
+      userId: viewerId,
+      event,
+      creatorId,
+      sessionId: randomBytes(13).toString('hex'),
+      dedupeKey: randomBytes(16).toString('hex'),
+      daysAgo,
+    },
+  );
+}
+
+/** A campaign plus one hour-bucket of performance. */
+async function recordCampaign(
+  userId: number,
+  opts: { spend: number; clicks: number; reach?: number; impressions?: number; daysAgo?: number },
+): Promise<number> {
+  const { ulid } = await import('ulid');
+  const campaign = await execute(
+    `INSERT INTO campaigns (public_id, user_id, name, objective, status, budget_coins, spent_coins)
+     VALUES (:publicId, :userId, 'test campaign', 'reach', 'active', 100000, :spend)`,
+    { publicId: ulid(), userId, spend: opts.spend },
+  );
+  await execute(
+    `INSERT INTO campaign_analytics
+       (campaign_id, bucket_hour, impressions, reach, views, clicks, spent_coins)
+     VALUES (:id, DATE_SUB(NOW(), INTERVAL :daysAgo DAY), :impressions, :reach, 0, :clicks, :spend)`,
+    {
+      id: campaign.insertId,
+      daysAgo: opts.daysAgo ?? 0,
+      impressions: opts.impressions ?? 0,
+      reach: opts.reach ?? 0,
+      clicks: opts.clicks,
+      spend: opts.spend,
+    },
+  );
+  return campaign.insertId;
+}
+
 before(async () => {
   const app = createApp();
   server = app.listen(0);
@@ -137,6 +186,8 @@ after(async () => {
       'DELETE FROM user_sessions WHERE user_id=?',
       'DELETE FROM user_devices WHERE user_id=?',
       'DELETE FROM login_attempts WHERE user_id=?',
+      'DELETE FROM campaign_analytics WHERE campaign_id IN (SELECT id FROM campaigns WHERE user_id=?)',
+      'DELETE FROM campaigns WHERE user_id=?',
       'DELETE FROM referral_codes WHERE user_id=?',
       'DELETE FROM wallets WHERE user_id=?',
       'DELETE FROM user_profiles WHERE user_id=?',
@@ -295,4 +346,123 @@ test('business analytics report campaign spend and reach', async () => {
   assert.equal(res.body.data!.adSpendCoins, 0);
   assert.equal(res.body.data!.campaignsRunning, 0);
   assert.equal(res.body.data!.days, 28);
+});
+// ── Business analytics ──
+//
+// The screen this feeds used to print "+24%" beside every tile as static text.
+// These tests pin the two things that makes impossible: the counts are rows
+// that exist, and a change is null when there is nothing to compare against.
+
+interface Business {
+  days: number;
+  profileVisits: number;
+  views: number;
+  ctaClicks: number;
+  followerGrowth: number;
+  profileVisitsChange: number | null;
+  viewsChange: number | null;
+  ctaClicksChange: number | null;
+  adSpendCoins: number;
+  adClicks: number;
+  adReach: number;
+  costPerClickCoins: number | null;
+  campaignsRunning: number;
+  hasCampaigns: boolean;
+  visitSeries: { day: string; value: number }[];
+  reachSeries: { day: string; value: number }[];
+}
+
+test('a business with no activity sees zeros and no invented growth', async () => {
+  const business = await registerUser();
+
+  const res = await api<Business>('GET', '/api/v1/me/analytics/business', undefined, business.token);
+  assert.equal(res.status, 200, JSON.stringify(res.body.error));
+
+  const b = res.body.data!;
+  assert.equal(b.profileVisits, 0);
+  assert.equal(b.ctaClicks, 0);
+  assert.equal(b.views, 0);
+  assert.equal(b.hasCampaigns, false);
+
+  // The important half: no comparison exists, so no arrow is offered.
+  assert.equal(b.profileVisitsChange, null, 'growth from nothing is not a percentage');
+  assert.equal(b.viewsChange, null);
+  assert.equal(b.ctaClicksChange, null);
+  assert.equal(b.costPerClickCoins, null, 'no clicks means no cost per click, not zero');
+
+  assert.equal(b.visitSeries.length, 28, 'the series still spans the window');
+  assert.ok(b.visitSeries.every((p) => p.value === 0));
+});
+
+test('profile visits and link taps are counted, and only for this account', async () => {
+  const business = await registerUser();
+  const visitor = await registerUser();
+  const other = await registerUser();
+
+  await recordBehaviour(visitor.dbId, business.dbId, 'profile_visit');
+  await recordBehaviour(visitor.dbId, business.dbId, 'profile_visit');
+  await recordBehaviour(visitor.dbId, business.dbId, 'cta_click');
+  // Someone else's profile — must not land in this account's numbers.
+  await recordBehaviour(visitor.dbId, other.dbId, 'profile_visit');
+
+  const res = await api<Business>('GET', '/api/v1/me/analytics/business', undefined, business.token);
+  const b = res.body.data!;
+  assert.equal(b.profileVisits, 2);
+  assert.equal(b.ctaClicks, 1);
+  assert.ok(b.visitSeries.some((p) => p.value === 2), 'and today carries them');
+
+  const theirs = await api<Business>('GET', '/api/v1/me/analytics/business', undefined, other.token);
+  assert.equal(theirs.body.data!.profileVisits, 1);
+  assert.equal(theirs.body.data!.ctaClicks, 0);
+});
+
+test('a change compares against the window before it, not against nothing', async () => {
+  const business = await registerUser();
+  const visitor = await registerUser();
+
+  // Two visits last week, four this week: a real doubling and then some.
+  await recordBehaviour(visitor.dbId, business.dbId, 'profile_visit', 10);
+  await recordBehaviour(visitor.dbId, business.dbId, 'profile_visit', 11);
+  for (let i = 0; i < 4; i += 1) {
+    await recordBehaviour(visitor.dbId, business.dbId, 'profile_visit', 1);
+  }
+
+  const res = await api<Business>(
+    'GET', '/api/v1/me/analytics/business?days=7', undefined, business.token,
+  );
+  const b = res.body.data!;
+  assert.equal(b.days, 7);
+  assert.equal(b.profileVisits, 4, 'this week');
+  assert.equal(b.profileVisitsChange, 100, 'against two the week before');
+});
+
+test('ad spend is the window, not the lifetime, and cost per click needs a click', async () => {
+  const business = await registerUser();
+
+  // Old spend, outside a 7-day window, with no clicks to show for it.
+  await recordCampaign(business.dbId, { spend: 900, clicks: 0, daysAgo: 40 });
+  // Recent spend, with clicks.
+  await recordCampaign(business.dbId, { spend: 100, clicks: 4, reach: 250, daysAgo: 1 });
+
+  const week = await api<Business>(
+    'GET', '/api/v1/me/analytics/business?days=7', undefined, business.token,
+  );
+  const w = week.body.data!;
+  assert.equal(w.hasCampaigns, true);
+  assert.equal(w.campaignsRunning, 2);
+  assert.equal(w.adSpendCoins, 100, 'the older campaign is outside this window');
+  assert.equal(w.adClicks, 4);
+  assert.equal(w.adReach, 250);
+  assert.equal(w.costPerClickCoins, 25, '100 coins over 4 clicks');
+
+  const quarter = await api<Business>(
+    'GET', '/api/v1/me/analytics/business?days=90', undefined, business.token,
+  );
+  assert.equal(quarter.body.data!.adSpendCoins, 1000, 'both campaigns, over the longer window');
+  assert.equal(quarter.body.data!.costPerClickCoins, 250);
+});
+
+test('business analytics need a session', async () => {
+  const res = await api('GET', '/api/v1/me/analytics/business');
+  assert.equal(res.status, 401);
 });
