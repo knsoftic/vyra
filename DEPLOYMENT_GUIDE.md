@@ -11,6 +11,16 @@ deployment done by one person; every click and every command is spelled out.
 >
 > Not using aaPanel? The plain-Ubuntu procedure is in **Appendix A** at the end.
 
+**This copy of the guide is personalised to the real deployment:**
+
+| Item | Value |
+|---|---|
+| Repository | `https://github.com/knsoftic/vyra.git` |
+| Server folder | `/www/wwwroot/website` |
+| API domain | `knbazaar.com` |
+| Admin panel domain | `admin.knbazaar.com` |
+| Database / DB user | `vyra` / `vyra` (the database keeps its own name — only the folder is `website`) |
+
 ---
 
 ## 1. What you are deploying
@@ -32,7 +42,8 @@ deployment done by one person; every click and every command is spelled out.
 |---|---|
 | Server | Ubuntu 22.04 LTS (clean install), 2 vCPU, 4 GB RAM, 80 GB SSD minimum — 4 vCPU / 8 GB / 200 GB recommended |
 | Network | 1 public IPv4; ports 80, 443 and the aaPanel port open at your cloud provider's firewall too |
-| Domains | `vyra.example.com` (API) and `admin.vyra.example.com` (admin panel) — two DNS **A-records** pointing at the server IP |
+| Domains | `knbazaar.com` (API) and `admin.knbazaar.com` (admin panel) — two DNS **A-records** pointing at the server IP |
+| DNS records | `A  knbazaar.com -> SERVER-IP` and `A  admin.knbazaar.com -> SERVER-IP` — create both BEFORE Step 8, or Let's Encrypt cannot issue the certificates |
 | Email | A Gmail account (or any SMTP provider) — connected later from the admin panel, no server work |
 | Access | Root SSH access to the server (only needed twice: to install aaPanel, and it gives you a terminal after that) |
 
@@ -112,14 +123,35 @@ ffmpeg -version | head -1
 
 ## 5. Step 3 — Upload the project
 
-**Where it lives:** `/www/wwwroot/vyra` (aaPanel's standard web root).
+**Where it lives:** `/www/wwwroot/website` (aaPanel's standard web root).
 
-**Option A — git (recommended):** aaPanel Terminal:
+**Option A — git (recommended):** aaPanel Terminal. First look at what is
+already there:
 
 ```bash
-cd /www/wwwroot
-git clone https://github.com/knsoftic/vyra.git vyra
+ls -A /www/wwwroot/website
 ```
+
+- **Folder does not exist yet:**
+
+  ```bash
+  cd /www/wwwroot
+  git clone https://github.com/knsoftic/vyra.git website
+  ```
+
+- **Folder exists but only holds aaPanel's default files** (`index.html`,
+  `404.html`, `.htaccess` — created when a site is added):
+
+  ```bash
+  cd /www/wwwroot/website
+  rm -f index.html 404.html .htaccess
+  git clone https://github.com/knsoftic/vyra.git .
+  ```
+
+- **Folder holds anything else:** stop and check what it is first — never
+  delete files you did not create.
+
+Afterwards `ls /www/wwwroot/website` must show `backend  admin  mobile  shared …`
 
 **Option B — zip upload:** on your PC, zip the project **without** these:
 
@@ -132,7 +164,7 @@ mobile/              (not needed on the server — built separately with EAS)
 ```
 
 Then aaPanel → **Files** → navigate to `/www/wwwroot` → **Upload** → upload the
-zip → right-click it → **Unzip** → rename the folder to `vyra`.
+zip → right-click it → **Unzip** → rename the folder to `website`.
 
 ---
 
@@ -157,7 +189,7 @@ Press **Submit**. Done — no SQL needed.
 
 ## 7. Step 5 — Configure the backend (.env)
 
-aaPanel → **Files** → `/www/wwwroot/vyra/backend` → find `.env.example` →
+aaPanel → **Files** → `/www/wwwroot/website/backend` → find `.env.example` →
 right-click → **Copy**, paste in the same folder, rename the copy to `.env` →
 double-click `.env` to open aaPanel's editor.
 
@@ -177,12 +209,12 @@ which one — that is deliberate. The values that matter:
 | `JWT_ACCESS_SECRET` | generate below — 48 random bytes |
 | `JWT_REFRESH_SECRET` | generate **again** — must be different |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | `15m` / `30d` |
-| `STORAGE_PUBLIC_URL` | `https://vyra.example.com/media` |
+| `STORAGE_PUBLIC_URL` | `https://knbazaar.com/media` |
 | `STORAGE_ENDPOINT` / keys / bucket | keep the defaults (media is served from the server's disk) |
 | `LIVE_INGEST_URL` / `LIVE_PLAYBACK_URL` | keep defaults until you add a media server |
 | `SMTP_*` | **leave empty** — Gmail is configured from the admin panel after launch |
-| `MAIL_FROM` | `Vyra <no-reply@vyra.example.com>` |
-| `CORS_ORIGINS` | `https://admin.vyra.example.com` |
+| `MAIL_FROM` | `Vyra <no-reply@knbazaar.com>` |
+| `CORS_ORIGINS` | `https://admin.knbazaar.com` |
 | `RATE_LIMIT_ENABLED` | `true` |
 
 Generate the two JWT secrets in the aaPanel Terminal (run it twice):
@@ -200,7 +232,7 @@ Save the file (Ctrl+S in the aaPanel editor).
 aaPanel **Terminal**:
 
 ```bash
-cd /www/wwwroot/vyra/backend
+cd /www/wwwroot/website/backend
 npm ci
 npm run migrate:up          # creates all tables — additive, forward-only
 npm run seed                # creative catalogue, segments, ranking weights
@@ -211,17 +243,17 @@ npm run seed:monetization   # coin packages, payment/payout methods, tasks, crit
 Create your Super Admin account (prints the credentials ONCE — save them):
 
 ```bash
-ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='a long passphrase' npm run seed:admin
+ADMIN_EMAIL=knsoftic@gmail.com ADMIN_PASSWORD='a long passphrase' npm run seed:admin
 ```
 
 Build the backend and the admin panel for production:
 
 ```bash
-cd /www/wwwroot/vyra/backend
+cd /www/wwwroot/website/backend
 npm run build
 
-cd /www/wwwroot/vyra/admin
-echo "NEXT_PUBLIC_API_URL=https://vyra.example.com" > .env.production
+cd /www/wwwroot/website/admin
+echo "NEXT_PUBLIC_API_URL=https://knbazaar.com" > .env.production
 npm ci
 npm run build
 ```
@@ -233,11 +265,11 @@ npm run build
 aaPanel **Terminal**:
 
 ```bash
-cd /www/wwwroot/vyra/backend
+cd /www/wwwroot/website/backend
 pm2 start dist/backend/src/server.js --name vyra-api
 pm2 start dist/backend/src/jobs/worker.js --name vyra-worker
 
-cd /www/wwwroot/vyra/admin
+cd /www/wwwroot/website/admin
 pm2 start npm --name vyra-admin -- run start      # serves on port 3000
 
 pm2 save
@@ -257,7 +289,7 @@ is delivered by a drain that must run every minute. aaPanel → **Cron** →
 | Type of Task | Shell Script |
 | Name of Task | `vyra-outbox-drain` |
 | Period | N minutes → `1` |
-| Script content | `cd /www/wwwroot/vyra/backend && /usr/bin/npm run outbox:drain >> /www/wwwlogs/vyra-outbox.log 2>&1` |
+| Script content | `cd /www/wwwroot/website/backend && /usr/bin/npm run outbox:drain >> /www/wwwlogs/vyra-outbox.log 2>&1` |
 
 Press **Add Task**. Without this, codes queue correctly and never send.
 
@@ -278,7 +310,12 @@ Press **Add Task**. Without this, codes queue correctly and never send.
 
 aaPanel → **Website** → **Add site**:
 
-- **Domain:** `vyra.example.com`
+> Already created a site whose root is `/www/wwwroot/website`? Do **not** add a
+> second one — open that site's settings instead and just make sure its domain
+> is `knbazaar.com`. The site root does not matter (everything is reverse-proxied);
+> only the domain, proxy and SSL settings below do.
+
+- **Domain:** `knbazaar.com`
 - **Database:** Do not create
 - **PHP version:** Static
 
@@ -314,7 +351,7 @@ Open the new site's settings (click its name) →
 
    ```nginx
    location /media/ {
-       alias /www/wwwroot/vyra/backend/storage/;
+       alias /www/wwwroot/website/backend/storage/;
        expires 7d;
    }
    ```
@@ -328,7 +365,7 @@ Open the new site's settings (click its name) →
 
 **Website** → **Add site** again:
 
-- **Domain:** `admin.vyra.example.com`, Database: none, PHP: Static.
+- **Domain:** `admin.knbazaar.com`, Database: none, PHP: Static.
 
 Site settings →
 
@@ -340,11 +377,11 @@ No config edits needed for this one.
 ### 10.3 Quick test
 
 ```bash
-curl -s https://vyra.example.com/health
+curl -s https://knbazaar.com/health
 # → {"ok":true,"data":{"status":"ok",...}}
 ```
 
-And open `https://admin.vyra.example.com` — the Vyra Admin login page should load.
+And open `https://admin.knbazaar.com` — the Vyra Admin login page should load.
 
 ---
 
@@ -353,7 +390,7 @@ And open `https://admin.vyra.example.com` — the Vyra Admin login page should l
 aaPanel **Terminal**:
 
 ```bash
-cd /www/wwwroot/vyra/backend
+cd /www/wwwroot/website/backend
 NODE_ENV=production npm run preflight
 ```
 
@@ -367,7 +404,7 @@ and run again. At this point the only expected FAIL is the email transport
 
 ## 12. Step 10 — First sign-in: finish setup in the admin panel
 
-Open `https://admin.vyra.example.com`, sign in with the `seed:admin` credentials.
+Open `https://admin.knbazaar.com`, sign in with the `seed:admin` credentials.
 
 ### 12.1 Connect Gmail (email delivery) — 4 steps, no server work
 
@@ -409,7 +446,7 @@ Open `https://admin.vyra.example.com`, sign in with the `seed:admin` credentials
 
 ```bash
 cd mobile
-# Point the app at production (EXPO_PUBLIC_API_URL=https://vyra.example.com)
+# Point the app at production (EXPO_PUBLIC_API_URL=https://knbazaar.com)
 npx eas build --platform android --profile production
 npx eas build --platform ios --profile production    # needs an Apple developer account
 npx eas submit                                        # to the stores
@@ -460,5 +497,5 @@ certbot — for operators who prefer no control panel:
 1. `sudo apt install -y mariadb-server redis-server nginx ffmpeg` + NodeSource Node 24 + `npm i -g pm2`.
 2. Create the DB and user in the `mysql` shell (`CREATE DATABASE vyra CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER 'vyra'@'localhost' IDENTIFIED BY '...'; GRANT ALL PRIVILEGES ON vyra.* TO 'vyra'@'localhost';`).
 3. Steps 5–7 and 9–12 are identical (paths under `/var/www` instead of `/www/wwwroot`).
-4. Nginx: write both server blocks yourself — API block with the `/media/` alias, WebSocket headers and `client_max_body_size 600M`; admin block proxying :3000. `sudo certbot --nginx -d vyra.example.com -d admin.vyra.example.com` for SSL.
-5. The outbox drain becomes a crontab entry: `* * * * * cd /var/www/vyra/backend && /usr/bin/npm run outbox:drain >> /var/log/vyra-outbox.log 2>&1`.
+4. Nginx: write both server blocks yourself — API block with the `/media/` alias, WebSocket headers and `client_max_body_size 600M`; admin block proxying :3000. `sudo certbot --nginx -d knbazaar.com -d admin.knbazaar.com` for SSL.
+5. The outbox drain becomes a crontab entry: `* * * * * cd /var/www/website/backend && /usr/bin/npm run outbox:drain >> /var/log/vyra-outbox.log 2>&1`.
