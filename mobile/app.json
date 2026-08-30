@@ -3,7 +3,7 @@
     "name": "Vyra",
     "slug": "vyra",
     "scheme": "vyra",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -65,7 +65,12 @@
         }
       ],
       "expo-secure-store",
-      "expo-audio"
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "$(PRODUCT_NAME) uses the microphone while you record a voiceover or a voice note, and never in the background."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

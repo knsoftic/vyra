@@ -21,6 +21,7 @@ import { config } from '../src/core/config.ts';
 import { query, queryOne, pingDb, closeDb } from '../src/core/db.ts';
 import { pingRedis, closeRedis } from '../src/core/redis.ts';
 import { verifyMailTransport } from '../src/core/mailer.ts';
+import { smsConfig } from '../src/core/sms.ts';
 import { getSetting } from '../src/core/settings.ts';
 
 type Level = 'pass' | 'warn' | 'fail';
@@ -109,6 +110,37 @@ async function checkInfrastructure(): Promise<void> {
       ? 'Configured.'
       : 'Not configured. Push messages will queue and fail; in-app notifications still work.',
   );
+
+  /*
+   * SMS.
+   *
+   * A warning rather than a failure: phone sign-in is an additional way in, not
+   * the only one, and the app refuses it plainly when no gateway is set instead
+   * of pretending to send. What would be a failure is a gateway configured
+   * without the country code, because then every locally-typed number is
+   * rejected and the operator has no idea why.
+   */
+  const sms = await smsConfig();
+  if (sms.provider === 'none') {
+    record(
+      'SMS gateway',
+      'warn',
+      'Not configured. Signing in by phone number is unavailable; the app says so rather than sending nothing.',
+    );
+  } else if (!sms.defaultCountryCode) {
+    record(
+      'SMS gateway',
+      'fail',
+      `${sms.provider} configured, but no default country code. Anyone typing a local number ` +
+        '(0300…) will be refused, because the platform cannot tell which country it belongs to.',
+    );
+  } else if (sms.provider === 'twilio' && (!sms.apiKey || !sms.apiSecret || !sms.senderId)) {
+    record('SMS gateway', 'fail', 'Twilio is selected but the SID, token or sender number is missing.');
+  } else if (sms.provider === 'http' && !sms.httpUrl) {
+    record('SMS gateway', 'fail', 'A generic gateway is selected but no URL is set.');
+  } else {
+    record('SMS gateway', 'pass', `${sms.provider}, country code +${sms.defaultCountryCode}.`);
+  }
 }
 
 async function checkMigrations(): Promise<void> {
