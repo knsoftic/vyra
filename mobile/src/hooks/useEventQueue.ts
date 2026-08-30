@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
+import { AppState, Platform } from 'react-native';
 import { events as eventsApi, type EventInput } from '../api';
 import { useSession } from '../store/SessionState';
 
@@ -92,16 +93,38 @@ export function useEventQueue(): EventQueue {
     if (queue.current.length >= FLUSH_AT_SIZE) void flush();
   });
 
-  // A closing tab would otherwise take its queue with it.
+  /**
+   * A departing app would otherwise take its queue with it.
+   *
+   * Two different departures, because the platforms mean different things by
+   * it: a browser tab closes, and an app goes to the background.
+   *
+   * The check is `Platform.OS`, not `typeof window`. React Native *does* define
+   * a `window` global — it just has no `addEventListener` — so the old guard
+   * passed on a phone and then called a function that did not exist. That threw
+   * `undefined is not a function` while the feed was rendering, which closed the
+   * app on the first screen after signup or login.
+   */
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     const onHide = () => void flush();
-    window.addEventListener('pagehide', onHide);
-    window.addEventListener('beforeunload', onHide);
-    return () => {
-      window.removeEventListener('pagehide', onHide);
-      window.removeEventListener('beforeunload', onHide);
-    };
+
+    if (Platform.OS === 'web') {
+      // Guarded anyway: server-side rendering has no window at all.
+      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+      window.addEventListener('pagehide', onHide);
+      window.addEventListener('beforeunload', onHide);
+      return () => {
+        window.removeEventListener('pagehide', onHide);
+        window.removeEventListener('beforeunload', onHide);
+      };
+    }
+
+    // On a device, backgrounding is the moment the queue is most likely to be
+    // lost — the OS can kill a backgrounded app without warning.
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') onHide();
+    });
+    return () => subscription.remove();
   }, [flush]);
 
   return { track, flush, pending: () => queue.current.length };
