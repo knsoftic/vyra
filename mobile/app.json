@@ -57,6 +57,12 @@
         {
           "photosPermission": "$(PRODUCT_NAME) accesses your photos so you can upload videos and set a profile picture."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "$(PRODUCT_NAME) opens your gallery only when you choose a video to upload."
+        }
       ]
     ],
     "experiments": {

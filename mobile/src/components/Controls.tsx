@@ -373,3 +373,35 @@ const styles = StyleSheet.create({
   sliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sliderHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });
+
+/**
+ * A determinate progress bar.
+ *
+ * Determinate on purpose: a spinner says "something is happening", which is
+ * exactly what someone waiting on a large upload already knows. A bar that
+ * moves as parts are confirmed answers the real question — how much is left.
+ */
+export function ProgressBar({ percent, height = 6 }: { percent: number; height?: number }) {
+  const theme = useTheme();
+  const clamped = Math.max(0, Math.min(100, percent));
+
+  return (
+    <View
+      style={{
+        height,
+        borderRadius: height / 2,
+        backgroundColor: theme.colors.surfaceAlt,
+        overflow: 'hidden',
+      }}
+    >
+      <View
+        style={{
+          width: `${clamped}%`,
+          height: '100%',
+          borderRadius: height / 2,
+          backgroundColor: theme.colors.brand,
+        }}
+      />
+    </View>
+  );
+}
