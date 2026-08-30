@@ -54,8 +54,14 @@ desktop.ini
 .vscode/*
 !.vscode/extensions.json
 
-# Media — user media never belongs in the repository
-uploads/
-media/
-storage/
-tmp/
+# Media — user media never belongs in the repository.
+#
+# These are ANCHORED on purpose. An unanchored `media/` also matched
+# `backend/src/modules/media/`, so six source files were silently kept out of
+# the repository and a clean clone failed to build with "Cannot find module
+# './modules/media/media.routes.ts'". A pattern meant for uploaded files must
+# name where uploads actually live, not any folder that shares the word.
+/uploads/
+/tmp/
+backend/storage/
+mobile/uploads/
