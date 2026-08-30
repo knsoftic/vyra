@@ -75,12 +75,23 @@ export interface BusinessProfile {
 }
 
 /** Who may interact with the account. Enforced server-side, not just in the UI. */
+export type Audience = 'everyone' | 'followers' | 'nobody';
+
 export interface PrivacySettings {
   isPrivate: boolean;
-  whoCanComment: 'everyone' | 'followers' | 'nobody';
-  whoCanMessage: 'everyone' | 'followers' | 'nobody';
-  whoCanDuet: 'everyone' | 'followers' | 'nobody';
+  whoCanComment: Audience;
+  whoCanMessage: Audience;
+  whoCanDuet: Audience;
+  whoCanMention: Audience;
   allowDownload: boolean;
+  /** Whether this account appears in other people's suggestions. */
+  suggestAccount: boolean;
+  /** Default for new videos; the per-video setting still wins where set. */
+  allowRemix: boolean;
+  /** Off means ads may still reach this account by country and category — never by what they watched. */
+  personalisedAds: boolean;
+  /** Whether other people can see that this account is online. */
+  showActivityStatus: boolean;
 }
 
 /** Adds fields only the account owner may see. */

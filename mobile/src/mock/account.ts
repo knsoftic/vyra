@@ -198,10 +198,12 @@ export const privacySettings = [
     items: [
       { id: 'personalized_ads', label: 'Personalized ads', value: true, description: 'Uses your in-app activity only' },
       { id: 'activity_status', label: 'Show activity status', value: true },
-      { id: 'location', label: 'Use location for Nearby', value: false, description: 'Off means Nearby stays empty' },
     ],
   },
 ];
+// "Use location for Nearby" used to sit here. Nearby does not exist, so the
+// switch governed nothing — offering it was the same false promise as a switch
+// that fails to save, only harder to notice.
 
 export const notificationSettings = [
   {

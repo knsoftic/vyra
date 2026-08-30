@@ -48,6 +48,11 @@ interface ProfileRow {
   links: string | null;
   is_private: number;
   who_can_comment: PrivacySettings['whoCanComment'];
+  who_can_mention: PrivacySettings['whoCanMention'];
+  suggest_account: number;
+  allow_remix: number;
+  personalised_ads: number;
+  show_activity_status: number;
   who_can_message: PrivacySettings['whoCanMessage'];
   who_can_duet: PrivacySettings['whoCanDuet'];
   allow_download: number;
@@ -70,7 +75,8 @@ const PROFILE_COLUMNS = `
   u.account_category, u.account_type, u.verification_tier, u.status,
   u.country_code, u.language, u.created_at,
   p.display_name, p.bio, p.avatar_url, p.links, p.is_private,
-  p.who_can_comment, p.who_can_message, p.who_can_duet, p.allow_download,
+  p.who_can_comment, p.who_can_message, p.who_can_duet, p.who_can_mention, p.allow_download,
+  p.suggest_account, p.allow_remix, p.personalised_ads, p.show_activity_status,
   p.follower_count, p.following_count, p.video_count, p.like_count,
   b.business_category, b.website, b.contact_email, b.contact_phone, b.cta_label, b.cta_url
 `;
@@ -150,7 +156,12 @@ export async function getPrivateUser(userId: number): Promise<PrivateUser> {
     whoCanComment: row.who_can_comment,
     whoCanMessage: row.who_can_message,
     whoCanDuet: row.who_can_duet,
+    whoCanMention: row.who_can_mention,
     allowDownload: row.allow_download === 1,
+    suggestAccount: row.suggest_account === 1,
+    allowRemix: row.allow_remix === 1,
+    personalisedAds: row.personalised_ads === 1,
+    showActivityStatus: row.show_activity_status === 1,
   };
 
   return {
@@ -299,9 +310,29 @@ export async function updatePrivacy(
     sets.push('who_can_duet = :whoCanDuet');
     params.whoCanDuet = input.whoCanDuet;
   }
+  if (input.whoCanMention !== undefined) {
+    sets.push('who_can_mention = :whoCanMention');
+    params.whoCanMention = input.whoCanMention;
+  }
   if (input.allowDownload !== undefined) {
     sets.push('allow_download = :allowDownload');
     params.allowDownload = input.allowDownload ? 1 : 0;
+  }
+  if (input.suggestAccount !== undefined) {
+    sets.push('suggest_account = :suggestAccount');
+    params.suggestAccount = input.suggestAccount ? 1 : 0;
+  }
+  if (input.allowRemix !== undefined) {
+    sets.push('allow_remix = :allowRemix');
+    params.allowRemix = input.allowRemix ? 1 : 0;
+  }
+  if (input.personalisedAds !== undefined) {
+    sets.push('personalised_ads = :personalisedAds');
+    params.personalisedAds = input.personalisedAds ? 1 : 0;
+  }
+  if (input.showActivityStatus !== undefined) {
+    sets.push('show_activity_status = :showActivityStatus');
+    params.showActivityStatus = input.showActivityStatus ? 1 : 0;
   }
 
   if (sets.length > 0) {

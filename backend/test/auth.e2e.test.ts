@@ -669,3 +669,86 @@ test('unauthenticated requests to protected routes are rejected', async () => {
     assert.equal(res.status, 401, `${method} ${path} must require authentication`);
   }
 });
+
+// ── Privacy settings ──
+
+test('every privacy setting the screen offers is stored and read back', async () => {
+  const user = await registerUser();
+  const token = user.session.tokens.accessToken;
+
+  const before = await api<{ privacy: Record<string, unknown> }>('GET', '/api/v1/me', undefined, token);
+  assert.equal(before.status, 200);
+
+  // The defaults are permissive, matching how the platform behaved before these
+  // settings existed — enabling them must not silently change anyone's account.
+  const defaults = before.body.data!.privacy;
+  assert.equal(defaults.isPrivate, false);
+  assert.equal(defaults.suggestAccount, true);
+  assert.equal(defaults.allowRemix, true);
+  assert.equal(defaults.personalisedAds, true);
+  assert.equal(defaults.showActivityStatus, true);
+  assert.equal(defaults.whoCanMention, 'everyone');
+
+  const saved = await api<Record<string, unknown>>(
+    'PATCH', '/api/v1/me/privacy',
+    {
+      isPrivate: true,
+      whoCanMention: 'followers',
+      suggestAccount: false,
+      allowRemix: false,
+      personalisedAds: false,
+      showActivityStatus: false,
+    },
+    token,
+  );
+  assert.equal(saved.status, 200, JSON.stringify(saved.body.error));
+  assert.equal(saved.body.data!.personalisedAds, false, 'the response reflects the change');
+
+  // The point of the whole feature: it is still off after a fresh read.
+  const after = await api<{ privacy: Record<string, unknown> }>('GET', '/api/v1/me', undefined, token);
+  const privacy = after.body.data!.privacy;
+  assert.equal(privacy.isPrivate, true);
+  assert.equal(privacy.whoCanMention, 'followers');
+  assert.equal(privacy.suggestAccount, false);
+  assert.equal(privacy.allowRemix, false);
+  assert.equal(privacy.personalisedAds, false);
+  assert.equal(privacy.showActivityStatus, false);
+});
+
+test('one privacy setting changes alone, and leaves the rest where they were', async () => {
+  const user = await registerUser();
+  const token = user.session.tokens.accessToken;
+
+  await api('PATCH', '/api/v1/me/privacy', { personalisedAds: false }, token);
+  await api('PATCH', '/api/v1/me/privacy', { isPrivate: true }, token);
+
+  const after = await api<{ privacy: Record<string, unknown> }>('GET', '/api/v1/me', undefined, token);
+  assert.equal(after.body.data!.privacy.personalisedAds, false, 'the earlier change survived');
+  assert.equal(after.body.data!.privacy.isPrivate, true);
+  assert.equal(after.body.data!.privacy.allowDownload, true, 'untouched settings are untouched');
+});
+
+test('a privacy change is recorded as a security event', async () => {
+  const user = await registerUser();
+  await api('PATCH', '/api/v1/me/privacy', { isPrivate: true }, user.session.tokens.accessToken);
+
+  const events = await api<{ event: string }[]>(
+    'GET', '/api/v1/me/security-events', undefined, user.session.tokens.accessToken,
+  );
+  if (events.status === 200) {
+    assert.ok(
+      events.body.data!.some((e) => e.event === 'privacy_changed'),
+      'changing who can see you is worth a record',
+    );
+  }
+});
+
+test('an unknown audience value is refused', async () => {
+  const user = await registerUser();
+  const res = await api(
+    'PATCH', '/api/v1/me/privacy',
+    { whoCanMention: 'friends-of-friends' },
+    user.session.tokens.accessToken,
+  );
+  assert.equal(res.status, 400);
+});

@@ -104,7 +104,12 @@ function LivePrivacy() {
     whoCanComment: user?.privacy.whoCanComment ?? 'everyone',
     whoCanMessage: user?.privacy.whoCanMessage ?? 'everyone',
     whoCanDuet: user?.privacy.whoCanDuet ?? 'everyone',
+    whoCanMention: user?.privacy.whoCanMention ?? 'everyone',
     allowDownload: user?.privacy.allowDownload ?? true,
+    suggestAccount: user?.privacy.suggestAccount ?? true,
+    allowRemix: user?.privacy.allowRemix ?? true,
+    personalisedAds: user?.privacy.personalisedAds ?? true,
+    showActivityStatus: user?.privacy.showActivityStatus ?? true,
   });
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,8 +139,30 @@ function LivePrivacy() {
     }
   };
 
+  const switchRow = (
+    key: 'isPrivate' | 'allowDownload' | 'suggestAccount' | 'allowRemix' | 'personalisedAds' | 'showActivityStatus',
+    label: string,
+    description: string,
+  ) => (
+    <ListRow
+      label={label}
+      description={description}
+      showChevron={false}
+      right={
+        busy === key ? (
+          <ActivityIndicator size="small" color={theme.colors.brand} />
+        ) : (
+          <Toggle
+            value={settings[key]}
+            onValueChange={(next) => void apply({ [key]: next }, key)}
+          />
+        )
+      }
+    />
+  );
+
   const audienceRow = (
-    key: 'whoCanComment' | 'whoCanMessage' | 'whoCanDuet',
+    key: 'whoCanComment' | 'whoCanMessage' | 'whoCanDuet' | 'whoCanMention',
     label: string,
     description: string,
   ) => (
@@ -168,21 +195,19 @@ function LivePrivacy() {
 
       <SectionHeader title="Account privacy" />
       <Card>
-        <ListRow
-          label="Private account"
-          description="Only approved followers can see your videos"
-          showChevron={false}
-          right={
-            busy === 'isPrivate' ? (
-              <ActivityIndicator size="small" color={theme.colors.brand} />
-            ) : (
-              <Toggle
-                value={settings.isPrivate}
-                onValueChange={(next) => void apply({ isPrivate: next }, 'isPrivate')}
-              />
-            )
-          }
-        />
+        {switchRow('isPrivate', 'Private account', 'Only approved followers can see your videos')}
+        <Divider inset={16} />
+        {switchRow(
+          'suggestAccount',
+          'Suggest your account to others',
+          'Whether you appear in other people\u2019s suggestions',
+        )}
+        <Divider inset={16} />
+        {switchRow(
+          'showActivityStatus',
+          'Show activity status',
+          'Lets people see when you were last active',
+        )}
       </Card>
 
       <SectionHeader title="Interactions" />
@@ -191,23 +216,26 @@ function LivePrivacy() {
         <Divider inset={16} />
         {audienceRow('whoCanMessage', 'Who can message you', 'Direct messages from other accounts')}
         <Divider inset={16} />
-        {audienceRow('whoCanDuet', 'Who can Duet with you', 'Duets and remixes of your videos')}
+        {audienceRow('whoCanDuet', 'Who can Duet with you', 'Duets of your videos')}
         <Divider inset={16} />
-        <ListRow
-          label="Allow downloads"
-          description="Lets viewers save your videos to their device"
-          showChevron={false}
-          right={
-            busy === 'allowDownload' ? (
-              <ActivityIndicator size="small" color={theme.colors.brand} />
-            ) : (
-              <Toggle
-                value={settings.allowDownload}
-                onValueChange={(next) => void apply({ allowDownload: next }, 'allowDownload')}
-              />
-            )
-          }
-        />
+        {audienceRow('whoCanMention', 'Who can mention you', 'Being tagged in captions and comments')}
+        <Divider inset={16} />
+        {switchRow('allowRemix', 'Allow Remix', 'The starting setting for each new video you post')}
+        <Divider inset={16} />
+        {switchRow(
+          'allowDownload',
+          'Allow downloads',
+          'Lets viewers save your videos to their device',
+        )}
+      </Card>
+
+      <SectionHeader title="Data" />
+      <Card>
+        {switchRow(
+          'personalisedAds',
+          'Personalised ads',
+          'Off means advertisers can still reach you by country and category \u2014 never by what you watched',
+        )}
       </Card>
 
       <View style={[styles.note, { paddingHorizontal: theme.spacing.md, paddingTop: theme.spacing.lg }]}>

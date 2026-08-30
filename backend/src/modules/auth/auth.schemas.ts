@@ -106,7 +106,12 @@ export const privacySchema = z.object({
   whoCanComment: audienceSchema.optional(),
   whoCanMessage: audienceSchema.optional(),
   whoCanDuet: audienceSchema.optional(),
+  whoCanMention: audienceSchema.optional(),
   allowDownload: z.boolean().optional(),
+  suggestAccount: z.boolean().optional(),
+  allowRemix: z.boolean().optional(),
+  personalisedAds: z.boolean().optional(),
+  showActivityStatus: z.boolean().optional(),
 });
 
 export const switchAccountTypeSchema = z.object({
