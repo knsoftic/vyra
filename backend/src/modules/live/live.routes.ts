@@ -218,6 +218,18 @@ liveRouter.get(
   }),
 );
 
+/** Everything the gift-earnings screen needs, aggregated server-side. */
+liveRouter.get(
+  '/me/gift-earnings',
+  requireAuth,
+  limits.read,
+  asyncHandler(async (req, res) => {
+    const { userId } = req as AuthedRequest;
+    const days = Number(req.query.days ?? 28);
+    res.json(ok(await gifts.giftEarnings(userId, Number.isFinite(days) ? days : 28)));
+  }),
+);
+
 liveRouter.get(
   '/gifts/history',
   requireAuth,

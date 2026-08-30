@@ -387,6 +387,129 @@ export interface GiftHistoryEntry {
   createdAt: string;
 }
 
+
+/**
+ * Everything the gift-earnings screen shows, in one request.
+ *
+ * Top gifters and the daily series are aggregated here rather than in the app:
+ * the app only ever sees the most recent fifty gifts, so summing those on the
+ * device would produce a "top gifter" ranking of the last fifty rows and call
+ * it all time.
+ *
+ * `clearing` is money that has been earned and cannot be withdrawn yet — it is
+ * shown separately rather than folded into the available balance, because a
+ * number someone cannot actually withdraw should never be presented as one they
+ * can.
+ */
+export interface GiftEarnings {
+  days: number;
+  /** Already cleared and payable. */
+  availableAmount: number;
+  /** Earned, still inside the clearing window. */
+  clearingAmount: number;
+  currency: string;
+  coinToPayoutRate: number;
+
+  giftCoinsReceived: number;
+  giftsReceived: number;
+  giftCoinsSent: number;
+
+  dailyCoins: { day: string; value: number }[];
+  topGifters: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatar: string | null;
+    coins: number;
+    gifts: number;
+  }[];
+}
+
+export async function giftEarnings(userId: number, days = 28): Promise<GiftEarnings> {
+  const window = Math.min(Math.max(days, 1), 90);
+
+  const [wallet, clearing, received, sent, daily, gifters, rate, currency] = await Promise.all([
+    queryOne<{ withdrawable: string | number }>(
+      'SELECT withdrawable_amount AS withdrawable FROM wallets WHERE user_id = :userId',
+      { userId },
+    ),
+    queryOne<{ amount: string | number }>(
+      `SELECT COALESCE(SUM(amount),0) AS amount FROM gift_clearing
+        WHERE user_id = :userId AND cleared_at IS NULL AND reversed_at IS NULL`,
+      { userId },
+    ),
+    queryOne<{ coins: number; n: number }>(
+      `SELECT COALESCE(SUM(coins_to_creator),0) AS coins, COUNT(*) AS n
+         FROM gift_transactions WHERE recipient_id = :userId`,
+      { userId },
+    ),
+    queryOne<{ coins: number }>(
+      `SELECT COALESCE(SUM(coins_spent),0) AS coins
+         FROM gift_transactions WHERE sender_id = :userId`,
+      { userId },
+    ),
+    query<{ day: unknown; value: unknown }>(
+      `SELECT DATE(created_at) AS day, COALESCE(SUM(coins_to_creator),0) AS value
+         FROM gift_transactions
+        WHERE recipient_id = :userId
+          AND created_at >= DATE_SUB(CURDATE(), INTERVAL :window DAY)
+        GROUP BY DATE(created_at)`,
+      { userId, window },
+    ),
+    query<{
+      public_id: string; username: string; display_name: string | null;
+      avatar_url: string | null; coins: number; gifts: number;
+    }>(
+      `SELECT u.public_id, u.username, p.display_name, p.avatar_url,
+              COALESCE(SUM(t.coins_spent),0) AS coins, COUNT(*) AS gifts
+         FROM gift_transactions t
+         JOIN users u ON u.id = t.sender_id AND u.deleted_at IS NULL
+         LEFT JOIN user_profiles p ON p.user_id = t.sender_id
+        WHERE t.recipient_id = :userId
+        GROUP BY u.id, u.public_id, u.username, p.display_name, p.avatar_url
+        ORDER BY coins DESC
+        LIMIT 10`,
+      { userId },
+    ),
+    getSetting('monetization.coin_to_payout_rate'),
+    getSetting('monetization.payout_currency'),
+  ]);
+
+  const byDay = new Map(
+    daily.map((r) => {
+      const d = r.day instanceof Date ? r.day : new Date(String(r.day));
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return [key, Number(r.value)];
+    }),
+  );
+  const dailyCoins: { day: string; value: number }[] = [];
+  for (let i = window - 1; i >= 0; i -= 1) {
+    const d = new Date(Date.now() - i * 86_400_000);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    dailyCoins.push({ day: key, value: byDay.get(key) ?? 0 });
+  }
+
+  return {
+    days: window,
+    availableAmount: Number(wallet?.withdrawable ?? 0),
+    clearingAmount: Number(clearing?.amount ?? 0),
+    currency: String(currency),
+    coinToPayoutRate: Number(rate),
+    giftCoinsReceived: Number(received?.coins ?? 0),
+    giftsReceived: Number(received?.n ?? 0),
+    giftCoinsSent: Number(sent?.coins ?? 0),
+    dailyCoins,
+    topGifters: gifters.map((g) => ({
+      id: g.public_id,
+      username: g.username,
+      displayName: g.display_name ?? g.username,
+      avatar: g.avatar_url,
+      coins: Number(g.coins),
+      gifts: Number(g.gifts),
+    })),
+  };
+}
+
 /** What the caller has sent and received. */
 export async function giftHistory(userId: number, limit = 50): Promise<GiftHistoryEntry[]> {
   const rows = await query<{

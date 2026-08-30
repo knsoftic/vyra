@@ -802,3 +802,80 @@ test('an ordinary user cannot stop someone else stream', async () => {
   );
   assert.ok(res.status === 403 || res.status === 404, `expected a refusal, got ${res.status}`);
 });
+
+// ── Gift earnings, as the earnings screen reads them ──
+
+test('gift earnings report real gifts, and keep clearing money separate', async () => {
+  const sender = await registerUser();
+  const creator = await registerUser();
+  await giveCoins(sender.id, 1000);
+
+  const empty = await api<{
+    availableAmount: number; clearingAmount: number; giftCoinsReceived: number;
+    giftsReceived: number; topGifters: unknown[]; dailyCoins: { value: number }[];
+  }>('GET', '/api/v1/me/gift-earnings', undefined, creator.token);
+
+  assert.equal(empty.status, 200, JSON.stringify(empty.body.error));
+  assert.equal(empty.body.data!.giftCoinsReceived, 0, 'a new creator has earned nothing');
+  assert.deepEqual(empty.body.data!.topGifters, []);
+  assert.ok(empty.body.data!.dailyCoins.length > 0, 'the series still spans the window');
+  assert.ok(empty.body.data!.dailyCoins.every((p) => p.value === 0));
+
+  await api(
+    'POST', '/api/v1/gifts',
+    { giftId: await firstGiftId(), recipientId: creator.publicId, quantity: 3 },
+    sender.token,
+    { 'idempotency-key': randomUUID() },
+  );
+
+  const after = await api<{
+    availableAmount: number; clearingAmount: number; giftCoinsReceived: number;
+    giftsReceived: number; giftCoinsSent: number;
+    topGifters: { username: string; coins: number; gifts: number }[];
+    dailyCoins: { value: number }[];
+  }>('GET', '/api/v1/me/gift-earnings', undefined, creator.token);
+
+  const e = after.body.data!;
+  assert.equal(e.giftsReceived, 1, 'one transaction');
+  assert.ok(e.giftCoinsReceived > 0, 'and the creator share landed');
+
+  // The distinction the screen depends on: money inside the clearing window is
+  // NOT presented as available, because it cannot be withdrawn.
+  assert.ok(e.clearingAmount > 0, 'the gift is still clearing');
+  assert.equal(e.availableAmount, 0, 'and is not counted as available');
+
+  assert.equal(e.topGifters.length, 1);
+  assert.equal(e.topGifters[0]!.gifts, 1);
+  assert.ok(e.topGifters[0]!.coins > 0);
+  assert.ok(e.dailyCoins.some((p) => p.value > 0), 'today has a value');
+});
+
+test('the sender sees what they sent, the creator sees what they received', async () => {
+  const sender = await registerUser();
+  const creator = await registerUser();
+  await giveCoins(sender.id, 1000);
+
+  await api(
+    'POST', '/api/v1/gifts',
+    { giftId: await firstGiftId(), recipientId: creator.publicId, quantity: 1 },
+    sender.token,
+    { 'idempotency-key': randomUUID() },
+  );
+
+  const senderView = await api<{ giftCoinsSent: number; giftCoinsReceived: number }>(
+    'GET', '/api/v1/me/gift-earnings', undefined, sender.token,
+  );
+  assert.ok(senderView.body.data!.giftCoinsSent > 0);
+  assert.equal(senderView.body.data!.giftCoinsReceived, 0);
+
+  const creatorView = await api<{ giftCoinsSent: number; giftCoinsReceived: number }>(
+    'GET', '/api/v1/me/gift-earnings', undefined, creator.token,
+  );
+  assert.equal(creatorView.body.data!.giftCoinsSent, 0);
+  assert.ok(creatorView.body.data!.giftCoinsReceived > 0);
+});
+
+test('gift earnings need a session', async () => {
+  const res = await api('GET', '/api/v1/me/gift-earnings');
+  assert.equal(res.status, 401);
+});
