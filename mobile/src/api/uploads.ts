@@ -15,6 +15,7 @@
  * held, so an interrupted upload continues instead of starting over.
  */
 
+import { File } from 'expo-file-system';
 import { API_BASE, getAccessToken, ApiError } from './client';
 
 const API = `${API_BASE}/api/v1`;
@@ -49,8 +50,48 @@ export interface LocalFile {
   uri: string;
   name: string;
   mimeType: string;
-  sizeBytes: number;
+  /**
+   * Bytes. Optional because almost nothing that hands us a file reliably knows
+   * it — see `measure` below, which is what actually establishes it.
+   */
+  sizeBytes?: number;
   durationMs?: number;
+}
+
+/**
+ * How big the file actually is.
+ *
+ * Every caller used to supply this and none of them could. The camera hands
+ * back a uri and no size, so the record screen passed `0`; the voiceover
+ * recorder the same; and `expo-image-picker` leaves `fileSize` undefined for
+ * videos on Android, so the gallery passed `0` too. The server requires a
+ * positive size, so all three uploads failed — the camera and the gallery
+ * alike, which is exactly what testing found.
+ *
+ * Reading it from disk removes the guesswork from the callers entirely. The
+ * `File` API reports the size without reading the file, so a 500 MB video costs
+ * nothing to measure; the blob fallback is for uris `File` cannot stat, such as
+ * a `content://` handed over by another app.
+ */
+export async function measure(uri: string): Promise<number> {
+  try {
+    const size = new File(uri).size;
+    if (typeof size === 'number' && size > 0) return size;
+  } catch {
+    // Not a path `File` can stat. The fallback below still might.
+  }
+
+  try {
+    const blob = await fetch(uri).then((r) => r.blob());
+    if (blob.size > 0) return blob.size;
+  } catch {
+    // Fall through to the error, which says something a person can act on.
+  }
+
+  throw new ApiError(
+    'validation_failed',
+    'This file could not be read from your device, so it cannot be uploaded.',
+  );
 }
 
 async function json<T>(path: string, init: RequestInit): Promise<T> {
@@ -77,13 +118,17 @@ async function json<T>(path: string, init: RequestInit): Promise<T> {
   return body.data;
 }
 
-export function createSession(file: LocalFile): Promise<UploadSession> {
+export async function createSession(file: LocalFile): Promise<UploadSession> {
+  // Measured here rather than at the call sites, so the one thing every caller
+  // got wrong cannot be got wrong again.
+  const sizeBytes = file.sizeBytes && file.sizeBytes > 0 ? file.sizeBytes : await measure(file.uri);
+
   return json<UploadSession>('/uploads', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       filename: file.name,
-      sizeBytes: file.sizeBytes,
+      sizeBytes,
       contentType: file.mimeType,
       kind: 'video',
       ...(file.durationMs ? { durationMs: Math.round(file.durationMs) } : {}),
@@ -128,7 +173,15 @@ export async function uploadFile(
   onProgress: (progress: UploadProgress) => void,
   handle?: UploadHandle & { session?: (s: UploadSession) => void },
 ): Promise<CompletedUpload> {
-  const session = await createSession(file);
+  /*
+   * One measurement drives both the session and the chunking. Measuring in two
+   * places would let the server's idea of the file's length and the loop's
+   * disagree, and the upload would then never complete.
+   */
+  const sizeBytes = file.sizeBytes && file.sizeBytes > 0 ? file.sizeBytes : await measure(file.uri);
+  const sized: LocalFile = { ...file, sizeBytes };
+
+  const session = await createSession(sized);
   handle?.session?.(session);
 
   const already = new Set(session.receivedChunks);
@@ -146,8 +199,8 @@ export async function uploadFile(
       fraction: session.totalChunks === 0 ? 1 : chunksSent / session.totalChunks,
       chunksSent,
       totalChunks: session.totalChunks,
-      bytesSent: Math.min(chunksSent * session.chunkSize, file.sizeBytes),
-      totalBytes: file.sizeBytes,
+      bytesSent: Math.min(chunksSent * session.chunkSize, sizeBytes),
+      totalBytes: sizeBytes,
     });
 
   report(already.size);
@@ -157,7 +210,7 @@ export async function uploadFile(
     if (already.has(index)) continue;
 
     const start = index * session.chunkSize;
-    const end = Math.min(start + session.chunkSize, file.sizeBytes);
+    const end = Math.min(start + session.chunkSize, sizeBytes);
     const blob = await readChunk(file.uri, start, end);
 
     const token = getAccessToken();

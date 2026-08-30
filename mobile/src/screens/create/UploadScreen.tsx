@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Screen, Header, Text, Button, ProgressBar } from '../../components';
 import { useTheme } from '../../theme';
 import { useApp } from '../../store/AppState';
-import { uploadFile, type LocalFile, type UploadProgress } from '../../api/uploads';
+import { uploadFile, type LocalFile, type UploadProgress, measure} from '../../api/uploads';
 import { ApiError } from '../../api';
 import { formatDuration } from '../../utils/format';
 import type { RootScreenProps } from '../../navigation/types';
@@ -50,11 +50,25 @@ export function UploadScreen({ navigation }: RootScreenProps<'Upload'>) {
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
 
+    /*
+     * The picker leaves `fileSize` undefined for videos on Android, so this
+     * measures the file rather than accepting a blank. It used to fall back to
+     * 0, and the guard below then refused every gallery upload on those
+     * devices with "that file reported no size" — which was true, and useless.
+     */
+    let sizeBytes: number;
+    try {
+      sizeBytes = asset.fileSize && asset.fileSize > 0 ? asset.fileSize : await measure(asset.uri);
+    } catch {
+      setError('That video could not be read from your gallery. Try another one.');
+      return;
+    }
+
     setFile({
       uri: asset.uri,
       name: asset.fileName ?? `video-${Date.now()}.mp4`,
       mimeType: asset.mimeType ?? 'video/mp4',
-      sizeBytes: asset.fileSize ?? 0,
+      sizeBytes,
       ...(asset.duration ? { durationMs: asset.duration } : {}),
     });
     setPreview(asset.uri);
@@ -63,10 +77,6 @@ export function UploadScreen({ navigation }: RootScreenProps<'Upload'>) {
 
   const send = useCallback(async () => {
     if (!file || busy) return;
-    if (!file.sizeBytes) {
-      setError('That file reported no size, so it cannot be uploaded. Try another video.');
-      return;
-    }
 
     setBusy(true);
     setError(null);
@@ -131,7 +141,7 @@ export function UploadScreen({ navigation }: RootScreenProps<'Upload'>) {
               {file.name}
             </Text>
             <Text variant="caption" tone="muted">
-              {mb(file.sizeBytes)} MB
+              {mb(file.sizeBytes ?? 0)} MB
               {file.durationMs ? ` · ${formatDuration(Math.round(file.durationMs / 1000))}` : ''}
             </Text>
           </View>

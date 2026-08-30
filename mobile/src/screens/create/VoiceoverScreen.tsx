@@ -101,7 +101,6 @@ export function VoiceoverScreen({ navigation }: RootScreenProps<'Voiceover'>) {
           uri,
           name: `voiceover-${Date.now()}.m4a`,
           mimeType: 'audio/m4a',
-          sizeBytes: 0,
           durationMs: Math.round(durationSec * 1000),
         },
         setUploading,

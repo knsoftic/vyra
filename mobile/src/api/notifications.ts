@@ -68,6 +68,12 @@ export const notifications = {
 
   unreadCount: () => api.get<{ unread: number }>('/me/notifications/count').then((r) => r.data),
 
+  /** Unread chats and notifications together, for the tab bar badge. */
+  unreadBadge: () =>
+    api
+      .get<{ chats: number; notifications: number; total: number }>('/me/unread')
+      .then((r) => r.data),
+
   markAllRead: () =>
     api.post<{ read: number; unread: number }>('/me/notifications/read').then((r) => r.data),
 

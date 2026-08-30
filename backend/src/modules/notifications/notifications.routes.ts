@@ -11,6 +11,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { ok } from '../../../../shared/contracts/http.ts';
 import { asyncHandler } from '../../middleware/async.ts';
+import { queryOne } from '../../core/db.ts';
 import { validate, valid } from '../../middleware/validate.ts';
 import { limits } from '../../middleware/ratelimit.ts';
 import { requireAuth, type AuthedRequest } from '../../middleware/auth.ts';
@@ -72,6 +73,45 @@ notificationsRouter.get(
   asyncHandler(async (req, res) => {
     const { userId } = req as AuthedRequest;
     res.json(ok({ unread: await notifications.unreadCount(userId) }));
+  }),
+);
+
+/**
+ * Everything waiting for this person, as one number.
+ *
+ * The tab bar shows a single badge combining unread chats and unread
+ * notifications, and it is on screen constantly — so it gets one endpoint and
+ * one round trip rather than pulling two full lists to count them.
+ *
+ * The badge previously came from the bundled sample data, which meant every
+ * account on the platform was shown the same invented unread count.
+ */
+notificationsRouter.get(
+  '/me/unread',
+  requireAuth,
+  limits.read,
+  asyncHandler(async (req, res) => {
+    const { userId } = req as AuthedRequest;
+
+    const [notificationCount, chatRow] = await Promise.all([
+      notifications.unreadCount(userId),
+      queryOne<{ unread: number }>(
+        `SELECT COALESCE(SUM(p.unread_count), 0) AS unread
+           FROM chat_participants p
+           JOIN chats c ON c.id = p.chat_id
+          WHERE p.user_id = :userId
+            AND p.left_at IS NULL
+            AND p.deleted_at IS NULL
+            AND p.is_muted = 0
+            AND c.deleted_at IS NULL`,
+        { userId },
+      ),
+    ]);
+
+    // Muted chats are excluded above: a badge is a request for attention, and
+    // muting a conversation is someone saying they do not want that.
+    const chats = Number(chatRow?.unread ?? 0);
+    res.json(ok({ chats, notifications: notificationCount, total: chats + notificationCount }));
   }),
 );
 

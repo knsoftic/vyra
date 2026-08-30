@@ -4,13 +4,14 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme';
+import { useApiData } from '../hooks/useApiData';
+import { notifications as notificationsApi } from '../api';
 import { useResponsive } from '../hooks/useResponsive';
 import { Text } from '../components/Text';
 import { HomeScreen } from '../screens/feed/HomeScreen';
 import { ExploreScreen } from '../screens/discover/ExploreScreen';
 import { InboxScreen } from '../screens/inbox/InboxScreen';
 import { MyProfileScreen } from '../screens/profile/ProfileScreen';
-import { chats, notifications } from '../mock';
 import type { MainTabParamList, RootStackParamList } from './types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -60,9 +61,25 @@ export function MainTabs() {
   const theme = useTheme();
   const { isDesktop } = useResponsive();
 
-  const unreadInbox =
-    chats.reduce((sum, chat) => sum + chat.unreadCount, 0) +
-    notifications.filter((n) => !n.read).length;
+  /*
+   * The inbox badge, from this account's own unread rows.
+   *
+   * It was summed from the bundled sample chats and notifications, so every
+   * person on the platform saw the same invented number sitting on their tab
+   * bar — and it never changed when they read anything.
+   *
+   * `fallbackOnEmpty: false` matters here more than most places: a badge is a
+   * claim that something is waiting, and there is no honest sample version of
+   * that.
+   */
+  const { data: unread } = useApiData(
+    () => notificationsApi.unreadBadge(),
+    null,
+    [],
+    { fallbackOnEmpty: false },
+  );
+
+  const unreadInbox = unread?.total ?? 0;
 
   const sidebarStyle = {
     backgroundColor: theme.colors.tabBar,

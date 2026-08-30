@@ -203,7 +203,6 @@ export function RecordScreen({ navigation }: RootScreenProps<'Record'>) {
           uri: clip.uri,
           name: `record-${Date.now()}.mp4`,
           mimeType: 'video/mp4',
-          sizeBytes: 0,
           durationMs: Math.round(clip.durationSec * 1000),
         };
         const completed = await uploadFile(file, setUploading);

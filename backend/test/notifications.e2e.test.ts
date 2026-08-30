@@ -121,6 +121,10 @@ after(async () => {
       const id = user.id;
 
       await execute('DELETE FROM outbox WHERE user_id = ?', [id]);
+      await execute('DELETE FROM chat_participants WHERE user_id = ?', [id]);
+      // The badge tests own the chats they create, and `chats.owner_id`
+      // references the user, so the row has to go before the account does.
+      await execute('DELETE FROM chats WHERE owner_id = ?', [id]);
       await execute('DELETE FROM notification_preferences WHERE user_id = ?', [id]);
       await execute('DELETE FROM notifications WHERE user_id = ? OR actor_id = ?', [id, id]);
       await execute('DELETE FROM otp_codes WHERE identifier = ?', [email]);
@@ -613,4 +617,104 @@ test('the outbox is staff-only', async () => {
 
   const drain = await api('POST', '/api/v1/admin/outbox/drain', {}, user.token);
   assert.equal(drain.status, 403);
+});
+// ── The tab-bar badge ──
+//
+// One number, on screen constantly. It was summed from the bundled sample data,
+// so every account saw the same invented count and reading things never changed
+// it. What matters here is that it counts this person's own rows, and that a
+// muted conversation stays out of it.
+
+interface Unread {
+  chats: number;
+  notifications: number;
+  total: number;
+}
+
+/** A direct chat with `unread` messages waiting for `user`. */
+async function chatWithUnread(userId: number, unread: number): Promise<number> {
+  const { ulid } = await import('ulid');
+  const chat = await execute(
+    "INSERT INTO chats (public_id, kind, owner_id) VALUES (?, 'private', ?)",
+    [ulid(), userId],
+  );
+  await execute(
+    `INSERT INTO chat_participants (chat_id, user_id, role, unread_count)
+     VALUES (?, ?, 'member', ?)`,
+    [chat.insertId, userId, unread],
+  );
+  return chat.insertId;
+}
+
+test('the badge counts this account, and starts at nothing', async () => {
+  const user = await registerUser();
+
+  const res = await api<Unread>('GET', '/api/v1/me/unread', undefined, user.token);
+  assert.equal(res.status, 200, JSON.stringify(res.body.error));
+  assert.deepEqual(res.body.data, { chats: 0, notifications: 0, total: 0 });
+});
+
+test('unread chats and notifications add up to one number', async () => {
+  const user = await registerUser();
+  const actor = await registerUser();
+
+  await chatWithUnread(user.id, 3);
+  await chatWithUnread(user.id, 2);
+  await notifications.notify({
+    userId: user.id,
+    actorId: actor.id,
+    kind: 'follow',
+    body: 'Someone followed you',
+  });
+
+  const res = await api<Unread>('GET', '/api/v1/me/unread', undefined, user.token);
+  const badge = res.body.data!;
+  assert.equal(badge.chats, 5, 'both conversations count');
+  assert.equal(badge.notifications, 1);
+  assert.equal(badge.total, 6, 'the badge is the sum');
+});
+
+test('a muted conversation stays out of the badge', async () => {
+  const user = await registerUser();
+  const chatId = await chatWithUnread(user.id, 4);
+
+  const before = await api<Unread>('GET', '/api/v1/me/unread', undefined, user.token);
+  assert.equal(before.body.data!.chats, 4);
+
+  await execute('UPDATE chat_participants SET is_muted = 1 WHERE chat_id = ? AND user_id = ?', [
+    chatId,
+    user.id,
+  ]);
+
+  // A badge is a request for attention; muting is someone saying they do not
+  // want that, so it has to mean something here too.
+  const after = await api<Unread>('GET', '/api/v1/me/unread', undefined, user.token);
+  assert.equal(after.body.data!.chats, 0, 'muted, so it no longer asks for attention');
+});
+
+test('leaving a conversation drops it from the badge', async () => {
+  const user = await registerUser();
+  const chatId = await chatWithUnread(user.id, 7);
+
+  await execute('UPDATE chat_participants SET left_at = NOW(3) WHERE chat_id = ? AND user_id = ?', [
+    chatId,
+    user.id,
+  ]);
+
+  const res = await api<Unread>('GET', '/api/v1/me/unread', undefined, user.token);
+  assert.equal(res.body.data!.chats, 0);
+});
+
+test("one account's unread is never another's", async () => {
+  const mine = await registerUser();
+  const theirs = await registerUser();
+
+  await chatWithUnread(theirs.id, 9);
+
+  const res = await api<Unread>('GET', '/api/v1/me/unread', undefined, mine.token);
+  assert.equal(res.body.data!.total, 0, 'the badge is per account');
+});
+
+test('the badge needs a session', async () => {
+  assert.equal((await api('GET', '/api/v1/me/unread')).status, 401);
 });
