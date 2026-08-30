@@ -118,7 +118,7 @@ ffmpeg -version | head -1
 
 ```bash
 cd /www/wwwroot
-git clone <your-repo-url> vyra
+git clone https://github.com/knsoftic/vyra.git vyra
 ```
 
 **Option B — zip upload:** on your PC, zip the project **without** these:
