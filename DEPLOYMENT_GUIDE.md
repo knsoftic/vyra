@@ -1,71 +1,75 @@
-# Vyra — Deployment Guide (aaPanel Edition)
+# Vyra — Deployment Guide (aaPanel Edition — Roman Urdu)
 
-Step-by-step deployment using **aaPanel** — the free web control panel that gives
-you a browser UI for Nginx, MySQL, SSL, cron and file management, so almost
-nothing needs to be done blind on the command line. Written for a first
-deployment done by one person; every click and every command is spelled out.
+Yeh guide **aaPanel** ke sath step-by-step deployment ke liye hai — aaPanel aik
+free web control panel hai jo Nginx, MySQL, SSL, cron aur file management sab
+browser se karwa deta hai, is liye zyada tar kaam clicks se hota hai aur sirf
+zaroori commands uske Terminal mein paste karni parti hain. Har click aur har
+command neeche likhi hui hai.
 
-> **The one rule:** never delete or reset the database. Every deployment and
-> every update is additive. If something goes wrong you roll back **code**, never
-> data. See `UPDATE_GUIDE.md` for updating a live platform safely.
+> **Sab se bara usool:** database kabhi delete ya reset nahi karna. Har
+> deployment aur har update sirf ADD karta hai. Agar kuch kharab ho jaye to
+> **code** wapas purana karna hai, data ko haath nahi lagana. Live platform ko
+> update karne ka tareeqa `UPDATE_GUIDE.md` mein hai.
 >
-> Not using aaPanel? The plain-Ubuntu procedure is in **Appendix A** at the end.
+> aaPanel use nahi kar rahe? Plain-Ubuntu ka tareeqa aakhir mein **Appendix A**
+> mein hai.
 
-**This copy of the guide is personalised to the real deployment:**
+**Yeh guide aap ki asli deployment ke mutabiq personalised hai:**
 
-| Item | Value |
+| Cheez | Value |
 |---|---|
 | Repository | `https://github.com/knsoftic/vyra.git` |
 | Server folder | `/www/wwwroot/website` |
 | API domain | `knbazaar.com` |
 | Admin panel domain | `admin.knbazaar.com` |
-| Database / DB user | `vyra` / `vyra` (the database keeps its own name — only the folder is `website`) |
+| Database / DB user | `vyra` / `vyra` (database ka naam `vyra` hi rahega — sirf folder ka naam `website` hai) |
 
 ---
 
-## 1. What you are deploying
+## 1. Aap kya deploy kar rahe hain
 
-| Part | What it is | Runs where |
+| Hissa | Yeh kya hai | Kahan chalta hai |
 |---|---|---|
-| **Backend API** | Node.js (Express + Socket.IO) — everything lives here | Server, port 4000, behind Nginx |
-| **Worker** | Video processing jobs (needs FFmpeg) | Server, second PM2 process |
-| **Super Admin panel** | Next.js web app for operating the platform | Server, port 3000, behind Nginx |
-| **Mobile app** | Expo / React Native | Users' phones (built with EAS, not on the server) |
-| **Database** | MySQL / MariaDB — all user data | Managed by aaPanel |
-| **Redis** | Rate limiting, presence, cache | Installed from aaPanel App Store |
+| **Backend API** | Node.js (Express + Socket.IO) — saare features isi mein hain | Server, port 4000, Nginx ke peechay |
+| **Worker** | Video processing (FFmpeg chahiye) | Server, doosra PM2 process |
+| **Super Admin panel** | Platform chalane ki web app | Server, port 3000, Nginx ke peechay |
+| **Mobile app** | Expo / React Native | Users ke phones (EAS se banti hai, server par nahi) |
+| **Database** | MySQL / MariaDB — TAMAM user data | aaPanel manage karta hai |
+| **Redis** | Rate limiting, presence, cache | aaPanel App Store se |
 
 ---
 
-## 2. What you need before starting
+## 2. Shuru karne se pehle kya chahiye
 
-| Item | Requirement |
+| Cheez | Zaroorat |
 |---|---|
-| Server | Ubuntu 22.04 LTS (clean install), 2 vCPU, 4 GB RAM, 80 GB SSD minimum — 4 vCPU / 8 GB / 200 GB recommended |
-| Network | 1 public IPv4; ports 80, 443 and the aaPanel port open at your cloud provider's firewall too |
-| Domains | `knbazaar.com` (API) and `admin.knbazaar.com` (admin panel) — two DNS **A-records** pointing at the server IP |
-| DNS records | `A  knbazaar.com -> SERVER-IP` and `A  admin.knbazaar.com -> SERVER-IP` — create both BEFORE Step 8, or Let's Encrypt cannot issue the certificates |
-| Email | A Gmail account (or any SMTP provider) — connected later from the admin panel, no server work |
-| Access | Root SSH access to the server (only needed twice: to install aaPanel, and it gives you a terminal after that) |
+| Server | Ubuntu 22.04 LTS (clean install), kam az kam 2 vCPU, 4 GB RAM, 80 GB SSD — behtar: 4 vCPU / 8 GB / 200 GB |
+| Network | 1 public IP; ports 80, 443 aur aaPanel ka port — cloud provider ke firewall mein bhi khule hon |
+| Domains | `knbazaar.com` (API) aur `admin.knbazaar.com` (admin panel) |
+| DNS records | `A  knbazaar.com -> SERVER-IP` aur `A  admin.knbazaar.com -> SERVER-IP` — yeh dono **Step 8 se pehle** ban jane chahiyen, warna Let's Encrypt certificate nahi dega |
+| Email | Aik Gmail account — baad mein admin panel se connect hoga, server par kuch nahi karna |
+| Access | Server ka root SSH — sirf aaPanel install karne ke liye chahiye, uske baad uska apna Terminal hai |
 
-> **Set the clock first.** SSH in once and run:
+> **Sab se pehle server ki clock UTC par karein.** SSH kar ke aik dafa:
 > ```bash
 > sudo timedatectl set-timezone UTC
 > ```
-> The database stamps every row with the system clock. A server whose timezone
-> changes later shifts every timestamp — we hit exactly this during testing.
+> Database har row par system ki clock ka waqt lagata hai. Agar baad mein
+> timezone badla to saare timestamps shift ho jate hain — testing mein humein
+> bilkul yehi masla mila tha.
 
 ---
 
-## 3. Step 1 — Install aaPanel
+## 3. Step 1 — aaPanel install karein
 
-SSH into the server as root and run the official installer (copy the current
-one-liner from https://www.aapanel.com if this one has changed):
+Server par root se SSH karein aur official installer chalayen (agar yeh command
+purani ho jaye to nayi https://www.aapanel.com se copy karein):
 
 ```bash
 URL=https://www.aapanel.com/script/install_7.0_en.sh && if [ -f /usr/bin/curl ];then curl -ksSO "$URL" ;else wget --no-check-certificate -O install_7.0_en.sh "$URL";fi;bash install_7.0_en.sh aapanel
 ```
 
-It takes a few minutes and then prints something like:
+Kuch minute lagte hain, phir yeh print hota hai:
 
 ```
 aaPanel Internet Address: https://YOUR-IP:PORT/xxxxxxxx
@@ -73,46 +77,47 @@ username: xxxxxxxx
 password: xxxxxxxx
 ```
 
-**Save all three lines.** Open the address in your browser and sign in.
+**Teeno lines save kar lein — yeh dobara nahi dikhti.** Browser mein address
+khol kar sign in karein.
 
-First things to do inside aaPanel:
+aaPanel ke andar pehle yeh karein:
 
-1. **Settings** (left menu) → change the panel **username and password** to your own.
-2. **Security** (left menu) → confirm ports **80** and **443** are released. Do
-   **not** open 3000 or 4000 — those stay internal, behind Nginx.
-3. If your cloud provider (AWS/Hetzner/DO/Contabo) has its own firewall, open
-   80, 443 and the aaPanel port there as well.
+1. **Settings** (left menu) → panel ka **username aur password** apna rakh lein.
+2. **Security** (left menu) → ports **80** aur **443** khule hon. **3000 aur
+   4000 mat kholein** — woh andar hi rehte hain, Nginx ke peechay.
+3. Agar cloud provider (AWS/Hetzner/DO/Contabo) ka apna firewall hai to wahan
+   bhi 80, 443 aur aaPanel ka port khol dein.
 
 ---
 
-## 4. Step 2 — Install the software from the App Store
+## 4. Step 2 — App Store se software install karein
 
-aaPanel → **App Store** (left menu). Install these four, one by one
-(each takes a minute or two — the panel shows progress):
+aaPanel → **App Store** (left menu). Yeh chaar install karein, aik aik kar ke
+(har aik minute do lagata hai, progress panel mein dikhti hai):
 
-| App | Version to pick | Why |
+| App | Kaunsa version | Kyun |
 |---|---|---|
-| **Nginx** | 1.24 or newer | The web server in front of everything |
-| **MySQL** | **MariaDB 10.6+** (or MySQL 8.0) | The database |
-| **Redis** | any offered | Rate limits, presence, cache |
-| **PM2 Manager** | latest | Installs Node.js + the PM2 process manager |
+| **Nginx** | 1.24 ya naya | Sab ke aagay web server |
+| **MySQL** | **MariaDB 10.6+** (ya MySQL 8.0) | Database |
+| **Redis** | jo bhi mile | Rate limits, presence, cache |
+| **PM2 Manager** | latest | Node.js + PM2 process manager |
 
-Then open aaPanel's **Terminal** (left menu) and check the Node version:
+Phir aaPanel ka **Terminal** (left menu) khol kar Node ka version check karein:
 
 ```bash
 node -v
 ```
 
-Vyra needs **Node 24**. If the version shown is older, install Node 24 over it:
+Vyra ko **Node 24** chahiye. Agar version purana hai to:
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
 sudo npm install -g pm2
-node -v    # must print v24.x
+node -v    # ab v24.x aana chahiye
 ```
 
-FFmpeg (for the video worker) — still in the aaPanel Terminal:
+FFmpeg (video worker ke liye) — isi Terminal mein:
 
 ```bash
 sudo apt install -y ffmpeg
@@ -121,26 +126,26 @@ ffmpeg -version | head -1
 
 ---
 
-## 5. Step 3 — Upload the project
+## 5. Step 3 — Project upload karein
 
-**Where it lives:** `/www/wwwroot/website` (aaPanel's standard web root).
+**Jagah:** `/www/wwwroot/website`
 
-**Option A — git (recommended):** aaPanel Terminal. First look at what is
-already there:
+**Option A — git (recommended):** aaPanel Terminal mein pehle dekhein folder
+mein kya hai:
 
 ```bash
 ls -A /www/wwwroot/website
 ```
 
-- **Folder does not exist yet:**
+- **Folder abhi hai hi nahi:**
 
   ```bash
   cd /www/wwwroot
   git clone https://github.com/knsoftic/vyra.git website
   ```
 
-- **Folder exists but only holds aaPanel's default files** (`index.html`,
-  `404.html`, `.htaccess` — created when a site is added):
+- **Folder hai magar sirf aaPanel ki default files hain** (`index.html`,
+  `404.html`, `.htaccess` — site banate waqt khud ban jati hain):
 
   ```bash
   cd /www/wwwroot/website
@@ -148,27 +153,34 @@ ls -A /www/wwwroot/website
   git clone https://github.com/knsoftic/vyra.git .
   ```
 
-- **Folder holds anything else:** stop and check what it is first — never
-  delete files you did not create.
+- **Folder mein kuch aur bhi hai:** ruk jayen, pehle dekhein woh kya hai — jo
+  files aap ne nahi banayi unhein kabhi delete na karein.
 
-Afterwards `ls /www/wwwroot/website` must show `backend  admin  mobile  shared …`
+Baad mein check:
 
-**Option B — zip upload:** on your PC, zip the project **without** these:
+```bash
+ls /www/wwwroot/website
+```
+
+`backend  admin  mobile  shared ...` nazar aana chahiye.
+
+**Option B — zip upload:** apne PC par project ko zip karein magar yeh folders
+**chhor kar**:
 
 ```
-node_modules/        (every one — reinstalled on the server)
-.env                 (never copy your local one)
+node_modules/        (sab ke sab — server par dobara install hote hain)
+.env                 (apni local wali kabhi copy na karein)
 backend/storage/     (local test media)
-admin/.next/         (rebuilt on the server)
-mobile/              (not needed on the server — built separately with EAS)
+admin/.next/         (server par dobara build hota hai)
+mobile/              (server par zaroorat nahi — EAS se alag banta hai)
 ```
 
-Then aaPanel → **Files** → navigate to `/www/wwwroot` → **Upload** → upload the
-zip → right-click it → **Unzip** → rename the folder to `website`.
+Phir aaPanel → **Files** → `/www/wwwroot` → **Upload** → zip upload karein →
+right-click → **Unzip** → folder ka naam `website` rakh dein.
 
 ---
 
-## 6. Step 4 — Create the database (two minutes, all UI)
+## 6. Step 4 — Database banayen (2 minute, sab UI se)
 
 aaPanel → **Databases** → **Add database**:
 
@@ -176,77 +188,76 @@ aaPanel → **Databases** → **Add database**:
 |---|---|
 | Database name | `vyra` |
 | Username | `vyra` |
-| Password | press the dice to generate a strong one — **copy it** |
+| Password | dice daba kar strong password generate karein — **copy kar lein** |
 | Access permission | `localhost` |
-| Charset | **utf8mb4** (important — emoji and every language) |
+| Charset | **utf8mb4** (zaroori — emoji aur har zuban ke liye) |
 
-Press **Submit**. Done — no SQL needed.
-
-> While you are here: note the **Root password** button on this page. You never
-> need root for Vyra, but aaPanel keeps it available.
+**Submit** dabayen. Bas — koi SQL nahi likhna.
 
 ---
 
-## 7. Step 5 — Configure the backend (.env)
+## 7. Step 5 — Backend configure karein (.env)
 
-aaPanel → **Files** → `/www/wwwroot/website/backend` → find `.env.example` →
-right-click → **Copy**, paste in the same folder, rename the copy to `.env` →
-double-click `.env` to open aaPanel's editor.
+aaPanel → **Files** → `/www/wwwroot/website/backend` → `.env.example` par
+right-click → **Copy** → usi folder mein paste → copy ka naam `.env` rakhein →
+double-click kar ke aaPanel ke editor mein kholein.
 
-Set every line. The server refuses to start if a key is missing and prints
-which one — that is deliberate. The values that matter:
+Har line set karein. Agar koi key ghalat ho to server start hone se inkaar kar
+deta hai aur bata deta hai kaunsi — yeh jaan bujh kar aisa hai. Ahem values:
 
-| Key | Set it to |
+| Key | Value |
 |---|---|
 | `NODE_ENV` | `production` |
 | `PORT` | `4000` |
 | `LOG_LEVEL` | `info` |
 | `DB_HOST` / `DB_PORT` | `127.0.0.1` / `3306` |
 | `DB_USER` / `DB_NAME` | `vyra` / `vyra` |
-| `DB_PASSWORD` | the password aaPanel generated in Step 4 |
+| `DB_PASSWORD` | Step 4 wala generated password |
 | `DB_POOL_SIZE` | `10` |
 | `REDIS_URL` | `redis://127.0.0.1:6379` |
-| `JWT_ACCESS_SECRET` | generate below — 48 random bytes |
-| `JWT_REFRESH_SECRET` | generate **again** — must be different |
+| `JWT_ACCESS_SECRET` | neeche wali command se generate karein |
+| `JWT_REFRESH_SECRET` | **dobara** generate karein — pehle se mukhtalif hona zaroori hai |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | `15m` / `30d` |
 | `STORAGE_PUBLIC_URL` | `https://knbazaar.com/media` |
-| `STORAGE_ENDPOINT` / keys / bucket | keep the defaults (media is served from the server's disk) |
-| `LIVE_INGEST_URL` / `LIVE_PLAYBACK_URL` | keep defaults until you add a media server |
-| `SMTP_*` | **leave empty** — Gmail is configured from the admin panel after launch |
+| `STORAGE_ENDPOINT` / keys / bucket | defaults rehne dein (media server ki apni disk se serve hoti hai) |
+| `LIVE_INGEST_URL` / `LIVE_PLAYBACK_URL` | defaults rehne dein jab tak media server na lagayen |
+| `SMTP_*` | **khali chhor dein** — Gmail baad mein admin panel se lagega |
 | `MAIL_FROM` | `Vyra <no-reply@knbazaar.com>` |
 | `CORS_ORIGINS` | `https://admin.knbazaar.com` |
 | `RATE_LIMIT_ENABLED` | `true` |
 
-Generate the two JWT secrets in the aaPanel Terminal (run it twice):
+JWT ke dono secrets banane ke liye Terminal mein yeh **do dafa** chalayen
+(har dafa naya milta hai):
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-Save the file (Ctrl+S in the aaPanel editor).
+File save karein (aaPanel editor mein Ctrl+S).
 
 ---
 
-## 8. Step 6 — Install, migrate, seed
+## 8. Step 6 — Install, migrate, seed, build
 
 aaPanel **Terminal**:
 
 ```bash
 cd /www/wwwroot/website/backend
 npm ci
-npm run migrate:up          # creates all tables — additive, forward-only
+npm run migrate:up          # saari tables banti hain — sirf add, kabhi delete nahi
 npm run seed                # creative catalogue, segments, ranking weights
-npm run seed:gifts          # the gift shop
+npm run seed:gifts          # gift shop
 npm run seed:monetization   # coin packages, payment/payout methods, tasks, criteria
 ```
 
-Create your Super Admin account (prints the credentials ONCE — save them):
+Apna Super Admin account banayen (credentials **sirf aik dafa** print hote
+hain — save kar lein):
 
 ```bash
-ADMIN_EMAIL=knsoftic@gmail.com ADMIN_PASSWORD='a long passphrase' npm run seed:admin
+ADMIN_EMAIL=knsoftic@gmail.com ADMIN_PASSWORD='aik lamba passphrase' npm run seed:admin
 ```
 
-Build the backend and the admin panel for production:
+Backend aur admin panel ki production build:
 
 ```bash
 cd /www/wwwroot/website/backend
@@ -260,7 +271,7 @@ npm run build
 
 ---
 
-## 9. Step 7 — Start the three processes with PM2
+## 9. Step 7 — Teeno process PM2 se chalayen
 
 aaPanel **Terminal**:
 
@@ -270,18 +281,18 @@ pm2 start dist/backend/src/server.js --name vyra-api
 pm2 start dist/backend/src/jobs/worker.js --name vyra-worker
 
 cd /www/wwwroot/website/admin
-pm2 start npm --name vyra-admin -- run start      # serves on port 3000
+pm2 start npm --name vyra-admin -- run start      # port 3000 par chalta hai
 
 pm2 save
-pm2 startup        # run the one command it prints, so everything survives reboots
-pm2 ls             # all three must say "online"
+pm2 startup        # jo command yeh print kare woh chala dein — reboot ke baad bhi sab chalta rahega
+pm2 ls             # teeno "online" hone chahiyen
 ```
 
-(You can also see and restart these later in aaPanel → **App Store → PM2
-Manager → Settings**, which lists every PM2 process with logs.)
+(Baad mein inhein aaPanel → **App Store → PM2 Manager → Settings** mein bhi
+dekh aur restart kar sakte hain, logs samet.)
 
-**The email drain — aaPanel Cron.** Queued email (verification codes, resets)
-is delivered by a drain that must run every minute. aaPanel → **Cron** →
+**Email drain — aaPanel Cron.** Queue mein pari email (verification codes,
+password resets) har minute deliver karne ke liye. aaPanel → **Cron** →
 **Add Cron Job**:
 
 | Field | Value |
@@ -291,9 +302,11 @@ is delivered by a drain that must run every minute. aaPanel → **Cron** →
 | Period | N minutes → `1` |
 | Script content | `cd /www/wwwroot/website/backend && /usr/bin/npm run outbox:drain >> /www/wwwlogs/vyra-outbox.log 2>&1` |
 
-Press **Add Task**. Without this, codes queue correctly and never send.
+**Add Task** dabayen. Iske baghair codes queue mein sahi lagte hain magar
+kabhi bhejte nahi — naye user ko platform toota hua lagta hai.
 
-**While you are in Cron — add the database backup** (do it now, thank yourself later):
+**Cron mein hi database backup bhi laga dein** (abhi karein, baad mein shukriya
+ada karenge):
 
 | Field | Value |
 |---|---|
@@ -304,39 +317,40 @@ Press **Add Task**. Without this, codes queue correctly and never send.
 
 ---
 
-## 10. Step 8 — Websites, reverse proxy and HTTPS (all UI)
+## 10. Step 8 — Websites, reverse proxy aur HTTPS (sab clicks)
 
-### 10.1 The API site
+### 10.1 API site — `knbazaar.com`
 
 aaPanel → **Website** → **Add site**:
 
-> Already created a site whose root is `/www/wwwroot/website`? Do **not** add a
-> second one — open that site's settings instead and just make sure its domain
-> is `knbazaar.com`. The site root does not matter (everything is reverse-proxied);
-> only the domain, proxy and SSL settings below do.
+> Agar aap pehle hi koi site bana chuke hain jiska root `/www/wwwroot/website`
+> hai to **doosri mat banayen** — usi site ki settings kholein aur bas yeh
+> yaqeen kar lein ke uska domain `knbazaar.com` hai. Site ka root farq nahi
+> dalta (sab kuch reverse-proxy hota hai); sirf domain, proxy aur SSL ki
+> settings ahem hain.
 
 - **Domain:** `knbazaar.com`
 - **Database:** Do not create
 - **PHP version:** Static
 
-Open the new site's settings (click its name) →
+Nayi site ke naam par click kar ke settings kholein:
 
 1. **Reverse Proxy** → **Add Reverse Proxy**:
    - Proxy Name: `api`
    - Target URL: `http://127.0.0.1:4000`
    - Send Domain: `$host`
    - Submit.
-2. Still in site settings → **Config** (the raw Nginx file). Two edits:
+2. Isi settings mein → **Config** (raw Nginx file). Do tabdeeliyan:
 
-   **a) WebSockets + upload size** — inside the `server { }` block (near the top), add:
+   **a) WebSockets + upload size** — `server { }` block ke andar (upar hi) yeh
+   line add karein:
 
    ```nginx
    client_max_body_size 600M;
    ```
 
-   Then find the proxy `location` block aaPanel generated (it may be in an
-   included file shown in the same editor) and make sure it contains these
-   three lines — add any that are missing:
+   Phir aaPanel ne jo proxy `location` block banaya hai usme yeh teen lines
+   honi chahiyen — jo na ho add kar dein:
 
    ```nginx
    proxy_http_version 1.1;
@@ -344,10 +358,10 @@ Open the new site's settings (click its name) →
    proxy_set_header Connection "upgrade";
    ```
 
-   Without them, chat and live features (Socket.IO) cannot connect.
+   In ke baghair chat aur live streaming (Socket.IO) connect nahi hoga.
 
-   **b) Media files** — add this block **above** the proxy location, so media
-   is served straight from disk instead of through Node:
+   **b) Media files** — proxy location se **upar** yeh block add karein, taake
+   media Node se guzre baghair seedha disk se serve ho:
 
    ```nginx
    location /media/ {
@@ -356,36 +370,37 @@ Open the new site's settings (click its name) →
    }
    ```
 
-   **Save** — aaPanel reloads Nginx automatically.
+   **Save** karein — aaPanel Nginx khud reload kar deta hai.
 
-3. **SSL** tab → **Let's Encrypt** → tick the domain → **Apply**. When issued,
-   switch on **Force HTTPS**.
+3. **SSL** tab → **Let's Encrypt** → domain tick karein → **Apply**. Certificate
+   ban jaye to **Force HTTPS** on kar dein.
 
-### 10.2 The admin panel site
+### 10.2 Admin panel site — `admin.knbazaar.com`
 
-**Website** → **Add site** again:
+**Website** → **Add site** dobara:
 
 - **Domain:** `admin.knbazaar.com`, Database: none, PHP: Static.
 
-Site settings →
+Site settings mein:
 
 1. **Reverse Proxy** → Add: Target URL `http://127.0.0.1:3000`, Send Domain `$host`.
 2. **SSL** → Let's Encrypt → Apply → Force HTTPS.
 
-No config edits needed for this one.
+Is site mein koi config edit nahi chahiye.
 
-### 10.3 Quick test
+### 10.3 Jaldi test
 
 ```bash
 curl -s https://knbazaar.com/health
 # → {"ok":true,"data":{"status":"ok",...}}
 ```
 
-And open `https://admin.knbazaar.com` — the Vyra Admin login page should load.
+Aur browser mein `https://admin.knbazaar.com` kholein — Vyra Admin ka login
+page aana chahiye.
 
 ---
 
-## 11. Step 9 — Run the preflight
+## 11. Step 9 — Preflight chalayen
 
 aaPanel **Terminal**:
 
@@ -394,108 +409,113 @@ cd /www/wwwroot/website/backend
 NODE_ENV=production npm run preflight
 ```
 
-One command checks: secrets, database, Redis, email, migrations, payment
-accounts, money settings, administrators, the outbox, media URLs and CORS.
-**Exit code 1 means do not launch.** Every `FAIL` line explains itself; fix it
-and run again. At this point the only expected FAIL is the email transport
-(fixed in the next step) and the payment placeholders (fixed in the admin panel).
+Yeh aik command check karti hai: secrets, database, Redis, email, migrations,
+payment accounts, money settings, administrators, outbox, media URLs aur CORS.
+**Exit code 1 ka matlab hai launch mat karein.** Har `FAIL` khud wajah batata
+hai; theek karein aur dobara chalayen. Is waqt sirf do FAIL expected hain:
+email transport (agla step) aur payment placeholders (admin panel mein theek
+honge).
 
 ---
 
-## 12. Step 10 — First sign-in: finish setup in the admin panel
+## 12. Step 10 — Pehli sign-in: admin panel mein setup mukammal karein
 
-Open `https://admin.knbazaar.com`, sign in with the `seed:admin` credentials.
+`https://admin.knbazaar.com` khol kar `seed:admin` wale credentials se sign in
+karein.
 
-### 12.1 Connect Gmail (email delivery) — 4 steps, no server work
+### 12.1 Gmail connect karein (email delivery) — 4 steps, server ko haath nahi lagana
 
-1. **Google Account → Security** → turn ON **2-Step Verification** (App
-   Passwords do not exist without it).
-2. **Google Account → Security → App passwords** → create one named "Vyra" →
-   copy the 16-character password.
-3. Admin panel → **App Settings → Email (SMTP)** → press **Use Gmail** (fills
-   `smtp.gmail.com` : `587`) → User = your Gmail address → App password = the
-   16 characters → **Save email settings**.
-4. Type your own address under **Send a test to** → **Send test** → check your
-   inbox. When it arrives, every verification code and password reset is live.
+1. **Google Account → Security** → **2-Step Verification** ON karein (iske
+   baghair App Passwords ka option aata hi nahi).
+2. **Google Account → Security → App passwords** → "Vyra" ke naam se banayen →
+   16 harf ka password copy karein.
+3. Admin panel → **App Settings → Email (SMTP)** → **Use Gmail** dabayen
+   (`smtp.gmail.com` : `587` khud bhar jata hai) → User = apna Gmail address →
+   App password = woh 16 harf → **Save email settings**.
+4. **Send a test to** mein apna address likh kar **Send test** dabayen → inbox
+   check karein. Email aa gayi to har verification code aur password reset ab
+   live hai.
 
-> A normal Gmail password never works — Google rejects it for SMTP; it must be
-> an App Password. Gmail allows roughly 500 emails/day: enough to launch. When
-> you outgrow it, put a transactional provider (Brevo, Resend, Amazon SES) into
-> the same four fields.
+> Aam Gmail password kabhi nahi chalega — Google SMTP ke liye use reject karta
+> hai; **App Password** hi chahiye. Gmail din ke taqreeban 500 emails deta hai:
+> launch ke liye kafi. Jab barh jayen to inhi 4 fields mein koi transactional
+> provider (Brevo, Resend, Amazon SES) daal dein.
 
-### 12.2 Money settings
+### 12.2 Paison ki settings
 
-- **Rates & Methods** → replace every `REPLACE IN ADMIN` payment account with
-  your real Easypaisa / JazzCash / bank / USDT details. *Money sent to a
-  placeholder account is money lost.* Set the coin purchase rates per currency.
-- **Coins** and **Gifts** → adjust packages and gift prices if you want
-  different ones than the seeds.
+- **Rates & Methods** → har `REPLACE IN ADMIN` wale payment account mein apni
+  asli Easypaisa / JazzCash / bank / USDT details dalein. *Placeholder account
+  par bheja gaya paisa dooba hua paisa hai.* Har currency ka coin rate set
+  karein.
+- **Coins** aur **Gifts** → packages aur gift prices apni marzi ke mutabiq.
 
-### 12.3 The rest
+### 12.3 Baqi cheezen
 
-- **App Settings** → app name, privacy policy / terms / guidelines URLs, upload limits.
-- **Roles & Permissions** → grant admin access to your team. (They register a
-  normal account in the app first; you grant against their email — this screen
-  never handles passwords.)
-- Run the preflight once more. Everything you have not knowingly deferred
-  should now be green.
+- **App Settings** → app ka naam, privacy policy / terms / guidelines ke URLs,
+  upload limits.
+- **Roles & Permissions** → apni team ko admin access dein. (Woh pehle app mein
+  aam account register karein; aap unke email par grant karein — yeh screen
+  kabhi password handle nahi karti.)
+- Preflight dobara chalayen — ab sab green hona chahiye (siwaye un cheezon ke
+  jo jaan bujh kar baad ke liye chhori hain).
 
 ---
 
-## 13. The mobile app (built on your PC, not the server)
+## 13. Mobile app (apne PC par banti hai, server par nahi)
 
 ```bash
 cd mobile
-# Point the app at production (EXPO_PUBLIC_API_URL=https://knbazaar.com)
+# App ko production par point karein (EXPO_PUBLIC_API_URL=https://knbazaar.com)
 npx eas build --platform android --profile production
-npx eas build --platform ios --profile production    # needs an Apple developer account
-npx eas submit                                        # to the stores
+npx eas build --platform ios --profile production    # Apple developer account chahiye
+npx eas submit                                        # stores par bhejne ke liye
 ```
 
-For quick internal testing, build an APK profile and install it directly on
-Android phones.
+Jaldi internal testing ke liye APK profile kafi hai — seedha Android phones
+par install karein.
 
 ---
 
-## 14. Known-deferred items (the preflight names them)
+## 14. Jo cheezen jaan bujh kar baad ke liye hain (preflight inka naam leta hai)
 
-| Item | Effect until added |
+| Cheez | Jab tak nahi lagegi to kya hoga |
 |---|---|
-| Push provider (FCM/APNs) | No push notifications; the in-app inbox carries everything. Push rows fail **visibly** in the outbox — by design, never silently. |
-| Media server (RTMP) | Live streaming untested end-to-end; UI, gifting and wallet logic are ready. |
-| Object storage (S3) | Media lives on the server disk. Fine to launch; watch disk usage in aaPanel's dashboard and migrate when it grows. |
+| Push provider (FCM/APNs) | Push notifications nahi; in-app inbox sab kuch dikhata hai. Push rows outbox mein **saaf nazar aa kar** fail hoti hain — jaan bujh kar, kabhi chupke nahi. |
+| Media server (RTMP) | Live streaming end-to-end untested; UI, gifting aur wallet ka logic tayyar hai. |
+| Object storage (S3) | Media abhi server ki disk par hai. Launch ke liye theek hai; aaPanel dashboard par disk dekhte rahein, barhne par migrate karein. |
 
 ---
 
-## 15. Troubleshooting (aaPanel edition)
+## 15. Kuch kaam na kare to (aaPanel edition)
 
-| Symptom | Look at |
+| Masla | Kahan dekhein |
 |---|---|
-| Cannot reach aaPanel itself | Cloud provider firewall — the panel port must be open there too, not only in aaPanel → Security. |
-| API will not start | `pm2 logs vyra-api` — it prints exactly which `.env` key is wrong. |
-| "Code sent" but no email arrives | Admin → Notifications: transport says `console`? Configure Gmail (12.1). Then aaPanel → Cron: is `vyra-outbox-drain` there and running? Check `/www/wwwlogs/vyra-outbox.log`. |
-| Admin panel: "cannot reach the API" | `NEXT_PUBLIC_API_URL` wrong in `admin/.env.production` (rebuild after changing), or admin domain missing from `CORS_ORIGINS` in `backend/.env` (then `pm2 restart vyra-api`). |
-| Chat / live never connects | The three WebSocket lines are missing from the proxy config (10.1-2a). |
-| Uploads fail around 50 MB | `client_max_body_size 600M;` missing from the site config (10.1-2a). |
-| Videos stuck in "processing" | `pm2 logs vyra-worker` — usually FFmpeg missing. |
-| Timestamps hours off | Server timezone changed after MySQL started. Keep UTC; restart MySQL once from App Store → MySQL → Restart. |
-| Everything slow / odd rate limits | App Store → Redis → is it running? Terminal: `redis-cli ping` → `PONG`. |
-| Buyer paid but no coins | That is a human step by design: Admin → Coin Requests → approve. Approving credits instantly and is audited. |
+| aaPanel khud nahi khul raha | Cloud provider ka apna firewall — panel ka port wahan bhi khula hona chahiye, sirf aaPanel → Security mein nahi. |
+| API start nahi ho raha | `pm2 logs vyra-api` — woh khud batata hai `.env` ki kaunsi key ghalat hai. |
+| "Code sent" magar email nahi aayi | Admin → Notifications: transport `console` hai? Gmail lagayen (12.1). Phir aaPanel → Cron: `vyra-outbox-drain` chal raha hai? `/www/wwwlogs/vyra-outbox.log` dekhein. |
+| Admin panel: "cannot reach the API" | `admin/.env.production` mein `NEXT_PUBLIC_API_URL` ghalat (badalne ke baad rebuild karein), ya `backend/.env` ke `CORS_ORIGINS` mein admin domain nahi (phir `pm2 restart vyra-api`). |
+| Chat / live connect nahi hota | Proxy config mein WebSocket ki teen lines nahi hain (10.1-2a). |
+| Upload 50 MB ke qareeb fail | Site config mein `client_max_body_size 600M;` nahi hai (10.1-2a). |
+| Videos "processing" par atki hain | `pm2 logs vyra-worker` — aksar FFmpeg install nahi hota. |
+| Timestamps ghanton aagay peechay | MySQL start hone ke baad server ka timezone badla hai. UTC rakhein; App Store → MySQL → Restart aik dafa. |
+| Sab kuch slow / rate limits ajeeb | App Store → Redis chal raha hai? Terminal: `redis-cli ping` → `PONG`. |
+| Buyer ne paise bheje magar coins nahi mile | Yeh jaan bujh kar insaani step hai: Admin → Coin Requests → approve. Approve karte hi coins mil jate hain, aur audit hota hai. |
 
-**Updating later:** follow `UPDATE_GUIDE.md` exactly — backup (aaPanel Cron
-already makes daily ones; take a manual one too: Databases → Backup), validate
-migrations, migrate while old code runs, switch code, `pm2 restart`, verify row
-counts. Roll back code, never data.
+**Baad mein update karna:** `UPDATE_GUIDE.md` ko poora follow karein — backup
+(aaPanel Cron rozana khud banata hai; update se pehle aik manual bhi:
+Databases → Backup), migrations validate, migrate jab purana code chal raha ho,
+phir code switch, `pm2 restart`, aur row counts verify. Rollback hamesha code
+ka hota hai, data ka kabhi nahi.
 
 ---
 
-## Appendix A — Without aaPanel (plain Ubuntu)
+## Appendix A — aaPanel ke baghair (plain Ubuntu)
 
-The same deployment using raw `apt`, `mysql`, hand-written Nginx configs and
-certbot — for operators who prefer no control panel:
+Wahi deployment seedha `apt`, `mysql`, haath se likhi Nginx configs aur certbot
+se — un operators ke liye jo control panel nahi chahte:
 
-1. `sudo apt install -y mariadb-server redis-server nginx ffmpeg` + NodeSource Node 24 + `npm i -g pm2`.
-2. Create the DB and user in the `mysql` shell (`CREATE DATABASE vyra CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER 'vyra'@'localhost' IDENTIFIED BY '...'; GRANT ALL PRIVILEGES ON vyra.* TO 'vyra'@'localhost';`).
-3. Steps 5–7 and 9–12 are identical (paths under `/var/www` instead of `/www/wwwroot`).
-4. Nginx: write both server blocks yourself — API block with the `/media/` alias, WebSocket headers and `client_max_body_size 600M`; admin block proxying :3000. `sudo certbot --nginx -d knbazaar.com -d admin.knbazaar.com` for SSL.
-5. The outbox drain becomes a crontab entry: `* * * * * cd /var/www/website/backend && /usr/bin/npm run outbox:drain >> /var/log/vyra-outbox.log 2>&1`.
+1. `sudo apt install -y mariadb-server redis-server nginx ffmpeg` + NodeSource se Node 24 + `npm i -g pm2`.
+2. `mysql` shell mein DB aur user banayen (`CREATE DATABASE vyra CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER 'vyra'@'localhost' IDENTIFIED BY '...'; GRANT ALL PRIVILEGES ON vyra.* TO 'vyra'@'localhost';`).
+3. Steps 5–7 aur 9–12 bilkul wahi hain (paths `/www/wwwroot` ki jagah `/var/www` ke neeche).
+4. Nginx: dono server blocks khud likhein — API block mein `/media/` alias, WebSocket headers aur `client_max_body_size 600M`; admin block :3000 par proxy. SSL ke liye `sudo certbot --nginx -d knbazaar.com -d admin.knbazaar.com`.
+5. Outbox drain crontab entry ban jata hai: `* * * * * cd /var/www/website/backend && /usr/bin/npm run outbox:drain >> /var/log/vyra-outbox.log 2>&1`.
