@@ -162,3 +162,29 @@ test('backtick identifiers still match the table rules', () => {
   const violations = validateMigration('DROP TABLE `users`;');
   assert.ok(violations.some((v) => v.rule === 'no-drop-table'));
 });
+
+/**
+ * Regression: the migration runner must load `.env`.
+ *
+ * It reads `process.env.DB_USER` directly and falls back to `root` with an
+ * empty password — which is correct for a local XAMPP install and wrong on
+ * every real server. Without `dotenv/config` the runner reported "Access
+ * denied for user 'root'" while the real credentials sat unread in `.env`,
+ * which is a deployment-blocking failure with a misleading message.
+ */
+test('the migration runner loads .env before reading credentials', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../scripts/migrate.ts', import.meta.url), 'utf8');
+
+  assert.ok(
+    source.includes("import 'dotenv/config'"),
+    'scripts/migrate.ts must import dotenv/config',
+  );
+
+  // And it must be loaded before the config object reads process.env, or the
+  // import would run too late to matter.
+  assert.ok(
+    source.indexOf("import 'dotenv/config'") < source.indexOf('process.env.DB_HOST'),
+    'dotenv must be imported before process.env is read',
+  );
+});

@@ -12,6 +12,16 @@
  * moves forward with a compensating migration.
  */
 
+// Loads `.env` before anything reads `process.env` below.
+//
+// This runner deliberately does not import `core/config.ts` — it must be able to
+// run against a database whose application config is not yet valid. But reading
+// `process.env` without loading the file meant it silently fell back to
+// `root` with an empty password: correct for a local XAMPP install, and wrong
+// on every real server, where it reported "Access denied for user 'root'" while
+// the configured credentials sat unread in `.env`.
+import 'dotenv/config';
+
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
