@@ -119,8 +119,8 @@ after(async () => {
     await execute('DELETE FROM business_profiles WHERE user_id = ?', [user.id]);
     await execute('DELETE FROM user_profiles WHERE user_id = ?', [user.id]);
     await execute('DELETE FROM users WHERE id = ?', [user.id]);
-    await execute('DELETE FROM otp_codes WHERE email = ?', [email]);
-    await execute('DELETE FROM login_attempts WHERE email = ?', [email]);
+    await execute('DELETE FROM otp_codes WHERE identifier = ?', [email]);
+    await execute('DELETE FROM login_attempts WHERE identifier = ?', [email]);
   }
   } finally {
     // fetch keeps sockets alive, and `close()` waits for every open connection —

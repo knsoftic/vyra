@@ -32,6 +32,7 @@ import {
   me as meApi,
   ping,
   isAuthenticated as hasTokens,
+  restoreTokens,
   setTokens,
   setUnauthenticatedHandler,
   ApiError,
@@ -44,6 +45,11 @@ interface SessionValue {
   backendStatus: BackendStatus;
   /** True once a real account is signed in. */
   isSignedIn: boolean;
+  /**
+   * True until the stored session has been read back from secure storage.
+   * The app must not route to the login screen while this is true.
+   */
+  restoring: boolean;
   user: PrivateUser | null;
   loading: boolean;
   error: string | null;
@@ -56,6 +62,10 @@ interface SessionValue {
     displayName?: string;
     birthdate: string;
   }) => Promise<void>;
+  /** Sends a one-time code to a phone number. */
+  requestPhoneCode: (phone: string) => Promise<{ sent: boolean; phone: string; devCode?: string }>;
+  /** Verifies the code and signs in — creating the account if the number is new. */
+  verifyPhoneCode: (phone: string, code: string) => Promise<{ isNewAccount: boolean }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   recheckBackend: () => Promise<void>;
@@ -98,6 +108,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking');
   const [user, setUser] = useState<PrivateUser | null>(null);
   const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const recheckBackend = useCallback(async () => {
@@ -116,18 +127,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     void (async () => {
-      const alive = await ping();
+      // The stored session is read before anything else. Until this resolves
+      // the app does not know whether anyone is signed in, and showing the
+      // login screen in the meantime is indistinguishable from having been
+      // logged out.
+      const [alive] = await Promise.all([ping(), restoreTokens()]);
       if (cancelled) return;
+
       setBackendStatus(alive ? 'live' : 'offline');
-      if (!alive || !hasTokens()) return;
+      if (!alive || !hasTokens()) {
+        setRestoring(false);
+        return;
+      }
 
       try {
         const profile = await meApi.profile();
         if (!cancelled) setUser(profile);
       } catch (err) {
         if (cancelled) return;
-        // Only a rejected session clears the tokens. A network blip must not.
+        // Only a rejected session clears the tokens. A network blip must not —
+        // otherwise a moment without signal would sign someone out for good.
         if (err instanceof ApiError && !err.offline) setTokens(null);
+      } finally {
+        if (!cancelled) setRestoring(false);
       }
     })();
 
@@ -193,6 +215,47 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const requestPhoneCode = useCallback(async (phone: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      return await authApi.requestPhoneOtp(phone);
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.offline
+            ? 'Could not reach the server. Is the backend running?'
+            : err.message
+          : 'Could not send the code.';
+      setError(message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const verifyPhoneCode = useCallback(async (phone: string, code: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const session = await authApi.verifyPhone({ phone, code, device: DEVICE });
+      setUser(session.user);
+      setBackendStatus('live');
+      return { isNewAccount: session.isNewAccount };
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.offline
+            ? 'Could not reach the server. Is the backend running?'
+            : err.message
+          : 'That code did not work.';
+      setError(message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     await authApi.logout().catch(() => undefined);
     setUser(null);
@@ -212,16 +275,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     () => ({
       backendStatus,
       isSignedIn: user !== null,
+      restoring,
       user,
       loading,
       error,
       signIn,
       signUp,
+      requestPhoneCode,
+      verifyPhoneCode,
       signOut,
       refreshProfile,
       recheckBackend,
     }),
-    [backendStatus, user, loading, error, signIn, signUp, signOut, refreshProfile, recheckBackend],
+    [
+      backendStatus, restoring, user, loading, error, signIn, signUp,
+      requestPhoneCode, verifyPhoneCode, signOut, refreshProfile, recheckBackend,
+    ],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

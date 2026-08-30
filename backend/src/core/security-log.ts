@@ -93,7 +93,7 @@ export async function recordLoginAttempt(
 ): Promise<void> {
   try {
     await execute(
-      `INSERT INTO login_attempts (email, user_id, ip, successful, reason)
+      `INSERT INTO login_attempts (identifier, user_id, ip, successful, reason)
        VALUES (:email, :userId, :ip, :successful, :reason)`,
       {
         email: input.email ?? null,

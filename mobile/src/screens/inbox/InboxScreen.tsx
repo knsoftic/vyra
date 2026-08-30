@@ -116,18 +116,28 @@ export function InboxScreen({ navigation }: TabScreenProps<'Inbox'>) {
       : {}),
   });
 
-  const chats: Chat[] = live && liveChats.length > 0 ? liveChats.map(toChat) : sampleChats;
+  /*
+   * An empty inbox is a real answer.
+   *
+   * This used to read `live && liveChats.length > 0`, so a signed-in person
+   * with no conversations was shown the sample ones — a list of messages from
+   * people who do not exist, indistinguishable from real ones. Samples belong
+   * to sample mode, where the whole screen is labelled as such.
+   */
+  const chats: Chat[] = live ? liveChats.map(toChat) : sampleChats;
 
-  // Communities the caller is actually in, falling back to the samples so the
-  // strip is not an empty band while the platform has none.
-  const { data: myCommunities } = useApiData(
+  // Communities the caller is actually in. Not padded with samples: a strip of
+  // communities somebody has not joined is an invitation to tap into a group
+  // that does not exist.
+  const { data: myCommunities, source: communitySource } = useApiData(
     () => communitiesApi.list({ mine: true, limit: 12 }).then((page) => page.items),
     [],
     [],
+    { fallbackOnEmpty: false },
   );
 
   const communityStrip =
-    myCommunities.length > 0
+    communitySource === 'live'
       ? myCommunities.map((c) => ({
           id: c.id,
           name: c.name,

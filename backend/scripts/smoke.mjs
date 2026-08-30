@@ -122,7 +122,9 @@ try {
 
   console.log('\n── Phase 4: creation ──');
   const catalogue = await api('GET', '/api/v1/creative/catalogue', undefined, alice.token);
-  check('catalogue serves 20 filters', catalogue.body.data?.filters?.length === 20);
+  // A floor, not an exact count: the admin panel can add filters, so an equality
+  // check turns an operator doing that into a failing smoke run.
+  check('catalogue serves at least 20 filters', (catalogue.body.data?.filters?.length ?? 0) >= 20);
   check('catalogue serves effects', catalogue.body.data?.effects?.length >= 12);
   check('catalogue serves fonts', catalogue.body.data?.fonts?.length >= 1);
   check('catalogue serves 11 adjustment controls', catalogue.body.data?.adjustments?.length === 11);

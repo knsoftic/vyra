@@ -135,9 +135,38 @@ export function splitStatements(sql: string): string[] {
 
 const ident = '`?([a-zA-Z0-9_]+)`?';
 
+/**
+ * Rules a migration has waived in writing.
+ *
+ * A waiver line looks like:
+ *
+ *     -- migration-waiver: review-type-narrowing — <why this one is safe>
+ *
+ * Only rules in `WAIVABLE_RULES` can be waived, and a waiver needs a reason —
+ * a bare rule name is ignored, because the reason is the whole point. Recording
+ * it in the migration means the justification lives beside the statement
+ * forever and shows up in review, rather than being a `--allow-narrowing` flag
+ * somebody typed once at a terminal and nobody can see afterwards.
+ *
+ * It also means the operator running `npm run migrate:up` on a server is not
+ * stopped by a decision that was already taken and reasoned about here.
+ */
+export function waivedRules(sql: string): Set<string> {
+  const waived = new Set<string>();
+  const pattern = /^\s*--\s*migration-waiver:\s*([\w-]+)\s*[—:-]\s*(.+)$/gim;
+
+  for (const match of sql.matchAll(pattern)) {
+    const rule = match[1] ?? '';
+    const reason = (match[2] ?? '').trim();
+    if (WAIVABLE_RULES.has(rule) && reason.length >= 20) waived.add(rule);
+  }
+  return waived;
+}
+
 export function validateMigration(sql: string): Violation[] {
   const violations: Violation[] = [];
   const statements = splitStatements(sql);
+  const waived = waivedRules(sql);
 
   for (const raw of statements) {
     const statement = raw.replace(/\s+/g, ' ').trim();
@@ -241,7 +270,8 @@ export function validateMigration(sql: string): Violation[] {
     }
   }
 
-  return violations;
+  // A rule the migration waived in writing, with a reason, is not reported.
+  return violations.filter((v) => !waived.has(v.rule));
 }
 
 /** Rules that a reviewer can consciously waive, given evidence. */

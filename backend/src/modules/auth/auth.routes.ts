@@ -23,8 +23,11 @@ import {
   refreshSchema,
   registerSchema,
   resetPasswordSchema,
+  phoneOtpRequestSchema,
+  phoneOtpVerifySchema,
 } from './auth.schemas.ts';
 import * as service from './auth.service.ts';
+import * as phoneAuth from './phone-auth.service.ts';
 import { revokeSession } from './tokens.ts';
 import type { SessionInfo } from '../../../../shared/contracts/user.ts';
 
@@ -102,6 +105,33 @@ authRouter.post(
     const body = valid<{ body: typeof otpVerifySchema }>(req).body;
     const result = await service.confirmOtp(req, body.email, body.code, body.purpose);
     res.json(ok(result));
+  }),
+);
+
+// ── Phone sign-in ──
+//
+// One code, one endpoint pair. Verifying signs the person in — into their
+// existing account, or into one created on the spot — because the code is the
+// authentication and a second step would only be asking them to prove it twice.
+
+authRouter.post(
+  '/auth/phone/request',
+  limits.otp,
+  validate({ body: phoneOtpRequestSchema }),
+  asyncHandler(async (req, res) => {
+    const body = valid<{ body: typeof phoneOtpRequestSchema }>(req).body;
+    res.json(ok(await phoneAuth.requestPhoneOtp(req, body.phone, config.isProduction)));
+  }),
+);
+
+authRouter.post(
+  '/auth/phone/verify',
+  limits.otp,
+  validate({ body: phoneOtpVerifySchema }),
+  asyncHandler(async (req, res) => {
+    const body = valid<{ body: typeof phoneOtpVerifySchema }>(req).body;
+    const session = await phoneAuth.verifyPhoneOtp(req, body.phone, body.code, body.device);
+    res.status(session.isNewAccount ? 201 : 200).json(ok(session));
   }),
 );
 

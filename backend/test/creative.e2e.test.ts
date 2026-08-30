@@ -191,7 +191,7 @@ after(async () => {
     await execute('DELETE FROM security_events WHERE user_id = ?', [id]);
     await execute('DELETE FROM user_sessions WHERE user_id = ?', [id]);
     await execute('DELETE FROM user_devices WHERE user_id = ?', [id]);
-    await execute('DELETE FROM login_attempts WHERE user_id = ? OR email = ?', [id, email]);
+    await execute('DELETE FROM login_attempts WHERE user_id = ? OR identifier = ?', [id, email]);
     await execute('DELETE FROM referral_codes WHERE user_id = ?', [id]);
     await execute('DELETE FROM wallets WHERE user_id = ?', [id]);
     await execute('DELETE FROM user_profiles WHERE user_id = ?', [id]);
@@ -232,7 +232,16 @@ test('the catalogue serves all 20 filters plus effects, packs and fonts', async 
 
   assert.equal(res.status, 200);
   const cat = res.body.data!;
-  assert.equal(cat.filters.length, 20, 'PHASE_04 requires 20 base filters');
+  /*
+   * At least 20, not exactly 20. The admin panel can now create filters, which
+   * is the point of the catalogue being served from the database — so an exact
+   * count turns an operator adding a filter into a failing build. What has to
+   * hold is that the twenty shipped ones are all still there.
+   */
+  assert.ok(
+    cat.filters.length >= 20,
+    `PHASE_04 requires the 20 base filters; found ${cat.filters.length}`,
+  );
   assert.ok(cat.effects.length >= 12);
   assert.ok(cat.stickerPacks.length >= 1);
   assert.ok(cat.fonts.length >= 1, 'fonts must be served');

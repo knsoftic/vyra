@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  PageHeader, SectionCard, Button, Badge, Notice, TextField, Toggle,
+  PageHeader, SectionCard, Button, Badge, Notice, TextField, Toggle, Select,
 } from '@/components/ui';
 import { adminApi, type EmailStatus } from '@/lib/api';
 import { useAdminData } from '@/lib/useAdminData';
@@ -75,6 +75,7 @@ export default function SettingsPage() {
         <div className="grid lg:grid-cols-2 gap-4 items-start">
           <div className="flex flex-col gap-4">
             <EmailSection settings={state.data.settings} onSaved={reload} />
+            <SmsSection settings={state.data.settings} onSaved={reload} />
             {GROUPS.slice(0, 2).map((group) => (
               <SettingsGroup key={group.title} group={group} settings={state.data.settings} onSaved={reload} />
             ))}
@@ -320,6 +321,186 @@ function EmailSection({
 
         {note ? <Notice tone={note.tone === 'success' ? 'info' : note.tone}
           title={note.tone === 'danger' ? 'Problem' : 'Status'}>{note.text}</Notice> : null}
+      </div>
+    </SectionCard>
+  );
+}
+/**
+ * SMS configuration.
+ *
+ * Provider-agnostic, because regional gateways vary far too much to hard-code
+ * one — and because the operator changing supplier should not need a deploy.
+ * The generic option describes the request with placeholders, which covers
+ * almost every gateway that is "call this URL with the number and the message".
+ *
+ * The credentials are write-only: the API masks them on the way out, so the
+ * fields come back blank and a blank field means "leave it as it is".
+ */
+function SmsSection({
+  settings,
+  onSaved,
+}: {
+  settings: Record<string, unknown>;
+  onSaved: () => void;
+}) {
+  const [provider, setProvider] = useState(String(settings['sms.provider'] ?? 'none'));
+  const [senderId, setSenderId] = useState(String(settings['sms.sender_id'] ?? ''));
+  const [countryCode, setCountryCode] = useState(String(settings['sms.default_country_code'] ?? ''));
+  const [httpUrl, setHttpUrl] = useState(String(settings['sms.http_url'] ?? ''));
+  const [httpMethod, setHttpMethod] = useState(String(settings['sms.http_method'] ?? 'POST'));
+  const [httpBody, setHttpBody] = useState(String(settings['sms.http_body'] ?? ''));
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ tone: 'info' | 'warn' | 'danger'; text: string } | null>(null);
+
+  const keyStored = String(settings['sms.api_key'] ?? '') !== '';
+  const secretStored = String(settings['sms.api_secret'] ?? '') !== '';
+
+  const save = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await adminApi.saveSetting('sms.provider', provider);
+      await adminApi.saveSetting('sms.sender_id', senderId.trim());
+      await adminApi.saveSetting('sms.default_country_code', countryCode.replace(/\D/g, ''));
+      await adminApi.saveSetting('sms.http_url', httpUrl.trim());
+      await adminApi.saveSetting('sms.http_method', httpMethod);
+      await adminApi.saveSetting('sms.http_body', httpBody.trim());
+      // Blank means "keep what is stored" — the API never sends them back.
+      if (apiKey) await adminApi.saveSetting('sms.api_key', apiKey);
+      if (apiSecret) await adminApi.saveSetting('sms.api_secret', apiSecret);
+      setApiKey('');
+      setApiSecret('');
+      setNote({ tone: 'info', text: 'Saved. Codes will go out through this gateway from now on.' });
+      onSaved();
+    } catch (err) {
+      setNote({ tone: 'danger', text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      title="SMS (sign-in codes)"
+      description="How one-time codes reach a phone. Without this, signing in by phone number is unavailable and the app says so."
+      action={
+        <Badge tone={provider === 'none' ? 'warn' : 'success'}>
+          {provider === 'none' ? 'Not configured' : provider === 'twilio' ? 'Twilio' : 'Gateway'}
+        </Badge>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {provider === 'none' ? (
+          <Notice tone="warn" title="Phone sign-in is off">
+            No gateway is set, so no code can be delivered. The app refuses phone sign-in rather
+            than telling somebody to check a phone that will never ring.
+          </Notice>
+        ) : null}
+
+        <label className="block">
+          <span className="block text-[11px] text-muted mb-1">Provider</span>
+          <Select
+            value={provider}
+            onChange={setProvider}
+            options={[
+              { value: 'none', label: 'None — phone sign-in disabled' },
+              { value: 'http', label: 'Generic HTTP gateway' },
+              { value: 'twilio', label: 'Twilio' },
+            ]}
+          />
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <TextField
+            label={provider === 'twilio' ? 'From number' : 'Sender ID'}
+            value={senderId}
+            onChange={setSenderId}
+            placeholder={provider === 'twilio' ? '+14155551234' : 'VYRA'}
+          />
+          <TextField
+            label="Default country code"
+            value={countryCode}
+            onChange={setCountryCode}
+            placeholder="92"
+            hint="Digits only. Lets people type 0300… instead of +92300…"
+          />
+        </div>
+
+        <TextField
+          label={
+            provider === 'twilio'
+              ? keyStored ? 'Account SID (stored — leave blank to keep it)' : 'Account SID'
+              : keyStored ? 'API key (stored — leave blank to keep it)' : 'API key'
+          }
+          value={apiKey}
+          onChange={setApiKey}
+          placeholder={keyStored ? '••••••••' : ''}
+          type="password"
+        />
+        <TextField
+          label={
+            provider === 'twilio'
+              ? secretStored ? 'Auth token (stored — leave blank to keep it)' : 'Auth token'
+              : secretStored ? 'API secret (stored — leave blank to keep it)' : 'API secret (if your gateway needs one)'
+          }
+          value={apiSecret}
+          onChange={setApiSecret}
+          placeholder={secretStored ? '••••••••' : ''}
+          type="password"
+        />
+
+        {provider === 'http' ? (
+          <>
+            <Notice tone="info" title="Describing your gateway">
+              Use <code>{'{to}'}</code>, <code>{'{text}'}</code>, <code>{'{key}'}</code>,{' '}
+              <code>{'{secret}'}</code> and <code>{'{sender}'}</code> in the URL or the body and
+              they are filled in for each message. A body starting with <code>{'{'}</code> that
+              parses as JSON is sent as JSON; anything else is sent form-encoded.
+            </Notice>
+
+            <TextField
+              label="Gateway URL"
+              value={httpUrl}
+              onChange={setHttpUrl}
+              placeholder="https://api.yourgateway.com/send"
+            />
+            <label className="block">
+              <span className="block text-[11px] text-muted mb-1">Method</span>
+              <Select
+                value={httpMethod}
+                onChange={setHttpMethod}
+                options={[
+                  { value: 'POST', label: 'POST' },
+                  { value: 'GET', label: 'GET' },
+                ]}
+              />
+            </label>
+            <TextField
+              label="Body or query string"
+              value={httpBody}
+              onChange={setHttpBody}
+              multiline
+              placeholder="api_key={key}&sender={sender}&to={to}&message={text}"
+            />
+          </>
+        ) : null}
+
+        <div className="flex items-center gap-2">
+          <Button variant="primary" onClick={() => void save()} disabled={busy}>
+            {busy ? 'Working…' : 'Save SMS settings'}
+          </Button>
+        </div>
+
+        {note ? (
+          <Notice
+            tone={note.tone === 'info' ? 'info' : note.tone}
+            title={note.tone === 'danger' ? 'Problem' : 'Status'}
+          >
+            {note.text}
+          </Notice>
+        ) : null}
       </div>
     </SectionCard>
   );

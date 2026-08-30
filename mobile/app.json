@@ -63,7 +63,8 @@
         {
           "photosPermission": "$(PRODUCT_NAME) opens your gallery only when you choose a video to upload."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": false

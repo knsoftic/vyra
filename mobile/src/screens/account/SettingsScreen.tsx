@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, Linking } from 'react-native';
+import { View, StyleSheet, ScrollView, Linking, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Screen,
@@ -207,9 +207,28 @@ export function SettingsScreen({ navigation }: RootScreenProps<'Settings'>) {
             icon="log-out-outline"
             danger
             onPress={() => {
-              void signOutServer();
-              signOut();
-              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+              /*
+               * Confirmed, because signing out is now the only thing that ends
+               * a session: the tokens survive closing the app, so a mistap here
+               * is the difference between staying signed in and typing a
+               * password again.
+               */
+              Alert.alert('Log out?', 'You will need to sign in again on this device.', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Log out',
+                  style: 'destructive',
+                  onPress: () => {
+                    void (async () => {
+                      // Awaited before navigating: the session state drives the
+                      // navigator, and resetting first would race it.
+                      await signOutServer();
+                      signOut();
+                      navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+                    })();
+                  },
+                },
+              ]);
             }}
           />
         </Card>

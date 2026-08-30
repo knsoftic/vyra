@@ -107,7 +107,7 @@ after(async () => {
       await execute('DELETE FROM security_events WHERE user_id = ?', [user.id]).catch(() => undefined);
       await execute('DELETE FROM user_sessions WHERE user_id = ?', [user.id]).catch(() => undefined);
       await execute('DELETE FROM user_devices WHERE user_id = ?', [user.id]).catch(() => undefined);
-      await execute('DELETE FROM login_attempts WHERE user_id = ? OR email = ?', [user.id, email]).catch(() => undefined);
+      await execute('DELETE FROM login_attempts WHERE user_id = ? OR identifier = ?', [user.id, email]).catch(() => undefined);
       await execute('DELETE FROM wallets WHERE user_id = ?', [user.id]).catch(() => undefined);
       await execute('DELETE FROM referral_codes WHERE user_id = ?', [user.id]).catch(() => undefined);
       await execute('DELETE FROM user_profiles WHERE user_id = ?', [user.id]).catch(() => undefined);

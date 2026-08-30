@@ -40,11 +40,30 @@ export function PrivateChatScreen({ navigation, route }: RootScreenProps<'Privat
   const sampleOther =
     sampleChat.participants.find((p) => p.id !== currentUser.id) ?? sampleChat.participants[0];
 
+  /**
+   * A stand-in for the person while their conversation is still loading.
+   *
+   * Not the sample person. `conversation.chat` is null for the moment between
+   * opening the screen and the server answering, and it stays null if the chat
+   * cannot be loaded at all — and in both cases the header used to show a
+   * sample contact's name and face over a real conversation. An unnamed
+   * placeholder is honest about knowing nothing yet; somebody else's name is
+   * not.
+   */
+  const pendingOther: User = {
+    ...sampleOther,
+    id: '',
+    username: '',
+    displayName: conversation.loading ? 'Loading…' : 'Conversation unavailable',
+    avatar: '',
+    verification: 'none',
+  };
+
   /** The other person, from the server when there is one. */
   const other: User = conversation.chat
     ? (() => {
         const found = conversation.chat.participants.find((p) => p.id !== me.id);
-        if (!found) return sampleOther;
+        if (!found) return conversation.live ? pendingOther : sampleOther;
         return {
           id: found.id,
           username: found.username,
@@ -59,9 +78,13 @@ export function PrivateChatScreen({ navigation, route }: RootScreenProps<'Privat
           videos: found.videos,
         };
       })()
-    : sampleOther;
+    : conversation.live
+      ? pendingOther
+      : sampleOther;
 
-  const chat = conversation.chat ?? sampleChat;
+  // In live mode an unloaded conversation is not quietly replaced by a sample
+  // one; the screen shows an empty thread under a placeholder header instead.
+  const chat = conversation.chat ?? (conversation.live ? null : sampleChat);
 
   /**
    * The server returns newest first; this list renders oldest at the top, so the
@@ -136,7 +159,7 @@ export function PrivateChatScreen({ navigation, route }: RootScreenProps<'Privat
   const menuItems = [
     { id: 'profile', label: 'View profile', icon: 'person-outline' as const, onPress: () => navigation.navigate('Profile', { userId: other.id }) },
     { id: 'media', label: 'Shared media', icon: 'images-outline' as const },
-    { id: 'mute', label: chat.isMuted ? 'Unmute notifications' : 'Mute notifications', icon: 'notifications-off-outline' as const },
+    { id: 'mute', label: chat?.isMuted ? 'Unmute notifications' : 'Mute notifications', icon: 'notifications-off-outline' as const },
     { id: 'search', label: 'Search in conversation', icon: 'search-outline' as const },
     { id: 'block', label: 'Block', icon: 'ban-outline' as const, danger: true },
     { id: 'report', label: 'Report', icon: 'flag-outline' as const, danger: true },
@@ -159,10 +182,10 @@ export function PrivateChatScreen({ navigation, route }: RootScreenProps<'Privat
                 </Text>
                 <VerifiedBadge tier={other.verification} size={12} />
               </View>
-              <Text variant="caption" tone={chat.isOnline ? 'success' : 'muted'}>
+              <Text variant="caption" tone={chat?.isOnline ? 'success' : 'muted'}>
                 {isTyping
                   ? 'typing...'
-                  : chat.isOnline
+                  : chat?.isOnline
                     ? 'Online'
                     : sampleChat.lastSeen && !conversation.live
                       ? `Last seen ${timeAgo(sampleChat.lastSeen)}`

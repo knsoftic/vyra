@@ -132,6 +132,13 @@ export function LoginScreen({ navigation }: RootScreenProps<'Login'>) {
                 size="lg"
                 fullWidth
                 icon={provider.icon}
+                // Phone sign-in is built; Apple and Google are not, and a button
+                // that silently does nothing is worse than one that is plainly
+                // unavailable.
+                disabled={provider.id !== 'phone'}
+                {...(provider.id === 'phone'
+                  ? { onPress: () => navigation.navigate('PhoneLogin') }
+                  : {})}
               />
             ))}
           </View>

@@ -123,7 +123,7 @@ after(async () => {
       await execute('DELETE FROM outbox WHERE user_id = ?', [id]);
       await execute('DELETE FROM notification_preferences WHERE user_id = ?', [id]);
       await execute('DELETE FROM notifications WHERE user_id = ? OR actor_id = ?', [id, id]);
-      await execute('DELETE FROM otp_codes WHERE email = ?', [email]);
+      await execute('DELETE FROM otp_codes WHERE identifier = ?', [email]);
       await execute('DELETE FROM follows WHERE follower_id = ? OR followee_id = ?', [id, id]);
       await execute('DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?', [id, id]);
       await execute('DELETE FROM security_events WHERE user_id = ?', [id]);

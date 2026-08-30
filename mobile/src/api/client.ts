@@ -21,6 +21,7 @@
  */
 
 import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 
 /** Where the API lives. Overridable so a device can point at a laptop's LAN IP. */
 const DEFAULT_BASE =
@@ -84,35 +85,84 @@ let onUnauthenticated: (() => void) | null = null;
 /**
  * Persistence.
  *
- * `localStorage` on web; in-memory on native until Phase 13 adds secure
- * storage. Tokens deliberately do not go to `AsyncStorage` on native — a refresh
- * token in unencrypted app storage is worth protecting properly rather than
- * conveniently.
+ * On native the tokens live in the device keychain (iOS) or the Android
+ * Keystore, via `expo-secure-store`. They used to be held in memory only, which
+ * meant every account was signed out the moment the app was closed — a person
+ * who had never asked to log out had to type their password again each time
+ * they came back. That was the right call while there was nowhere safe to put a
+ * refresh token, and the wrong one to leave in place.
+ *
+ * `localStorage` still serves the web build, which has no keychain.
+ *
+ * The in-memory copy stays authoritative for reads: `getAccessToken()` is
+ * called on every request and cannot wait on a keychain round trip.
  */
 const STORAGE_KEY = 'vyra.tokens';
 
 function persist(next: Tokens | null): void {
   tokens = next;
-  if (Platform.OS !== 'web') return;
+
+  if (Platform.OS === 'web') {
+    try {
+      if (next) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      else localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // A private window or blocked storage: the session simply does not
+      // survive a reload, which is acceptable.
+    }
+    return;
+  }
+
+  // Native. Deliberately not awaited — a sign-in must not block on the
+  // keychain, and the in-memory copy is already correct either way.
+  void (async () => {
+    try {
+      if (next) await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(next));
+      else await SecureStore.deleteItemAsync(STORAGE_KEY);
+    } catch {
+      // A device with no secure hardware, or a locked keychain: the session
+      // still works, it just will not outlive the app.
+    }
+  })();
+}
+
+/**
+ * Loads a stored session, if there is one.
+ *
+ * Awaited once at boot before the app decides whether anyone is signed in —
+ * otherwise the keychain read would land after the login screen had already
+ * been shown, which looks exactly like being logged out.
+ */
+export async function restoreTokens(): Promise<boolean> {
   try {
-    if (next) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    else localStorage.removeItem(STORAGE_KEY);
+    const raw =
+      Platform.OS === 'web'
+        ? localStorage.getItem(STORAGE_KEY)
+        : await SecureStore.getItemAsync(STORAGE_KEY);
+    if (!raw) return false;
+
+    const parsed = JSON.parse(raw) as Partial<Tokens>;
+    // A truncated or half-written record is not a session.
+    if (!parsed.accessToken || !parsed.refreshToken) {
+      await clearStored();
+      return false;
+    }
+    tokens = { accessToken: parsed.accessToken, refreshToken: parsed.refreshToken };
+    return true;
   } catch {
-    // A private window or blocked storage: the session simply does not survive
-    // a reload, which is acceptable.
+    tokens = null;
+    return false;
   }
 }
 
-function restore(): void {
-  if (Platform.OS !== 'web') return;
+async function clearStored(): Promise<void> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) tokens = JSON.parse(raw) as Tokens;
+    if (Platform.OS === 'web') localStorage.removeItem(STORAGE_KEY);
+    else await SecureStore.deleteItemAsync(STORAGE_KEY);
   } catch {
-    tokens = null;
+    /* nothing more to do */
   }
 }
-restore();
 
 export const setTokens = (next: Tokens | null): void => persist(next);
 export const getAccessToken = (): string | null => tokens?.accessToken ?? null;

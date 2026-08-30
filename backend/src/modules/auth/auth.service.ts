@@ -56,7 +56,7 @@ async function findByEmail(email: string): Promise<UserAuthRow | undefined> {
 async function isLockedOut(email: string): Promise<boolean> {
   const row = await queryOne<{ c: number }>(
     `SELECT COUNT(*) AS c FROM login_attempts
-      WHERE email = :email AND successful = 0
+      WHERE identifier = :email AND successful = 0
         AND created_at > (NOW(3) - INTERVAL :mins MINUTE)`,
     { email, mins: LOCKOUT_WINDOW_MINUTES },
   );
@@ -492,7 +492,7 @@ export async function changePassword(
 }
 
 /** The sessionId is internal bookkeeping and must not reach the client. */
-function stripSessionId<T extends AuthTokens & { sessionId?: number }>(tokens: T): AuthTokens {
+export function stripSessionId<T extends AuthTokens & { sessionId?: number }>(tokens: T): AuthTokens {
   return {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,

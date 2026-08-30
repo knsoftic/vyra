@@ -3,11 +3,13 @@ import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from '../../components';
 import { useTheme } from '../../theme';
+import { useSession } from '../../store/SessionState';
 import { appInfo } from '../../mock';
 import type { RootScreenProps } from '../../navigation/types';
 
 export function SplashScreen({ navigation }: RootScreenProps<'Splash'>) {
   const theme = useTheme();
+  const { restoring, isSignedIn } = useSession();
   const scale = useRef(new Animated.Value(0.82)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -21,10 +23,27 @@ export function SplashScreen({ navigation }: RootScreenProps<'Splash'>) {
       }),
       Animated.timing(opacity, { toValue: 1, duration: 420, useNativeDriver: true }),
     ]).start();
+  }, [scale, opacity]);
 
-    const timer = setTimeout(() => navigation.replace('Onboarding'), 1500);
+  /**
+   * Where to go once the stored session has been read.
+   *
+   * This used to be an unconditional `replace('Onboarding')` on a 1.5 second
+   * timer, which sent a signed-in user to the welcome screen whenever reading
+   * their session took longer than the animation — a cold start on mobile data
+   * routinely does. Waiting for the answer costs a moment; guessing costs
+   * someone their session.
+   */
+  useEffect(() => {
+    if (restoring) return;
+
+    // The animation still gets its moment, so the app does not blink.
+    const timer = setTimeout(
+      () => navigation.replace(isSignedIn ? 'MainTabs' : 'Onboarding'),
+      900,
+    );
     return () => clearTimeout(timer);
-  }, [navigation, scale, opacity]);
+  }, [navigation, restoring, isSignedIn]);
 
   return (
     <View style={[styles.root, { backgroundColor: '#0A0A0B' }]}>

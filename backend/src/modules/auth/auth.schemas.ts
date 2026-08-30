@@ -73,6 +73,31 @@ export const otpVerifySchema = z.object({
   purpose: otpPurposeSchema,
 });
 
+/**
+ * Phone sign-in.
+ *
+ * Loose here on purpose: people type their number with spaces, dashes,
+ * brackets and a leading zero, and `normalisePhone` understands all of those.
+ * Rejecting a correctly-typed number for its punctuation is a worse failure
+ * than normalising it. The real shape check happens after normalisation.
+ */
+export const phoneSchema = z
+  .string()
+  .trim()
+  .min(6, 'Enter your phone number.')
+  .max(24)
+  .regex(/^[+()\-\s\d]+$/, 'Enter a valid phone number.');
+
+export const phoneOtpRequestSchema = z.object({
+  phone: phoneSchema,
+});
+
+export const phoneOtpVerifySchema = z.object({
+  phone: phoneSchema,
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code.'),
+  device: deviceSchema,
+});
+
 export const resetPasswordSchema = z.object({
   email: emailSchema,
   code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code.'),

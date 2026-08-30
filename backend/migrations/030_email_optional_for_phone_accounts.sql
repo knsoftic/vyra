@@ -1,0 +1,32 @@
+-- 030 — An account can exist without an email address
+--
+-- `users.email` has been NOT NULL since migration 001, when an email address
+-- was the only way to have an account. Signing up with a phone number and a
+-- one-time code produces an account that legitimately has no email, so the
+-- column has to allow one to be absent.
+--
+-- Widening a NOT NULL column to nullable never loses data: every existing row
+-- keeps the address it has, and `uq_users_email` keeps working because both
+-- MySQL and MariaDB permit repeated NULLs in a unique index — so any number of
+-- phone-only accounts can coexist while two accounts still cannot share an
+-- address.
+--
+-- Worth stating plainly: NULL here means "no email address", not "not verified
+-- yet". Verification is `email_verified_at`, and it stays a separate question.
+--
+-- ── Why the guard is waived ──
+--
+-- The migration guard blocks any MODIFY COLUMN on a user table, because that is
+-- usually how a column gets silently narrowed and values truncated. It cannot
+-- see the current type, so it cannot tell a narrowing apart from a change that
+-- keeps the type and only relaxes NOT NULL — which is what this is.
+--
+-- Checked before waiving it, on a database with 212 accounts:
+--
+--     SELECT MAX(CHAR_LENGTH(email)) FROM users;   -- 29, against a limit of 191
+--
+-- migration-waiver: review-type-narrowing — VARCHAR(191) is unchanged; only NOT
+-- NULL becomes NULL, so no value can be truncated. Widest stored email was 29.
+
+ALTER TABLE users
+  MODIFY COLUMN email VARCHAR(191) NULL;

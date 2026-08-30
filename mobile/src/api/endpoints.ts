@@ -75,6 +75,25 @@ export const auth = {
       .then((r) => r.data),
 
   sessions: () => api.get<SessionInfo[]>('/auth/sessions').then((r) => r.data),
+
+  /**
+   * Phone sign-in.
+   *
+   * `verifyPhone` returns a full session and stores the tokens, because the
+   * code IS the authentication — there is no separate log-in step afterwards.
+   */
+  requestPhoneOtp: (phone: string) =>
+    api.post<{ sent: boolean; expiresInMinutes: number; phone: string; devCode?: string }>(
+      '/auth/phone/request',
+      { phone },
+      { anonymous: true },
+    ).then((r) => r.data),
+
+  async verifyPhone(input: { phone: string; code: string; device: DeviceInfo }): Promise<AuthSession> {
+    const { data } = await api.post<AuthSession>('/auth/phone/verify', input, { anonymous: true });
+    setTokens(data.tokens);
+    return data;
+  },
 };
 
 // ── Me ──

@@ -13,6 +13,7 @@ export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   Otp: { email: string; purpose: 'signup' | 'reset' };
+  PhoneLogin: undefined;
   ForgotPassword: undefined;
 
   // Shell

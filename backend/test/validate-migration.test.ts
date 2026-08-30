@@ -188,3 +188,39 @@ test('the migration runner loads .env before reading credentials', async () => {
     'dotenv must be imported before process.env is read',
   );
 });
+
+// ── Written waivers ──
+//
+// A waivable rule can be set aside by the migration itself, but only in writing
+// and only with a reason. This is what lets a genuinely safe change ship
+// without an operator having to remember a command-line flag on a server —
+// while keeping the justification visible in review forever.
+
+test('a waiver with a reason silences only that rule', () => {
+  const sql = `
+-- migration-waiver: review-type-narrowing — the type is unchanged, only NOT NULL is relaxed
+ALTER TABLE users MODIFY COLUMN email VARCHAR(191) NULL;`;
+  assert.deepEqual(rules(sql), []);
+});
+
+test('a waiver without a reason is ignored', () => {
+  const sql = `
+-- migration-waiver: review-type-narrowing
+ALTER TABLE users MODIFY COLUMN email VARCHAR(191) NULL;`;
+  assert.deepEqual(rules(sql), ['review-type-narrowing'], 'the reason is the whole point');
+});
+
+test('a waiver cannot silence a rule that is never waivable', () => {
+  const sql = `
+-- migration-waiver: no-drop-table — we are quite sure we do not need these rows
+DROP TABLE users;`;
+  assert.deepEqual(rules(sql), ['no-drop-table'], 'destroying user data is not negotiable');
+});
+
+test('a waiver applies to its own file only, not to every rule in it', () => {
+  const sql = `
+-- migration-waiver: review-type-narrowing — the type is unchanged, only NOT NULL is relaxed
+ALTER TABLE users MODIFY COLUMN email VARCHAR(191) NULL;
+DELETE FROM users;`;
+  assert.deepEqual(rules(sql), ['no-unbounded-delete']);
+});

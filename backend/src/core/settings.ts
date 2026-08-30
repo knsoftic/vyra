@@ -64,6 +64,40 @@ export const SETTING_DEFAULTS = {
   'email.smtp_pass': '',
   'email.from': '',
 
+  /*
+   * SMS delivery, for one-time codes.
+   *
+   * Provider-agnostic on purpose. `sms.provider` picks the shape of the
+   * request, not a business relationship:
+   *
+   *   'none'    no SMS is sent; codes go to the log in development and the
+   *             platform refuses to claim it texted anyone
+   *   'http'    a generic gateway — most regional providers are a GET or POST
+   *             with the number and the text as parameters, which is what
+   *             `sms.http_url` and `sms.http_body` describe
+   *   'twilio'  Twilio's REST API; account SID in `sms.api_key`, auth token in
+   *             `sms.api_secret`
+   *
+   * The credentials are write-only through the API, exactly like the SMTP
+   * password.
+   */
+  'sms.provider': 'none',
+  'sms.api_key': '',
+  'sms.api_secret': '',
+  /** The number or alphanumeric sender ID the message comes from. */
+  'sms.sender_id': '',
+  /** Generic gateway only: the endpoint. */
+  'sms.http_url': '',
+  'sms.http_method': 'POST',
+  /**
+   * Generic gateway only: the request body or query string, with `{to}`,
+   * `{text}`, `{key}`, `{secret}` and `{sender}` substituted in. JSON is sent
+   * as JSON; anything else is sent form-encoded.
+   */
+  'sms.http_body': '',
+  /** Default country code for numbers typed without one, e.g. 92 for Pakistan. */
+  'sms.default_country_code': '',
+
   // Shown in the app's About screen and enforced on sign-in.
   'app.name': 'Vyra',
   'app.min_supported_version': '1.0.0',

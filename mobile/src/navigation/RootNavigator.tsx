@@ -12,6 +12,7 @@ import { OnboardingScreen } from '../screens/auth/OnboardingScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { SignupScreen } from '../screens/auth/SignupScreen';
 import { OtpScreen } from '../screens/auth/OtpScreen';
+import { PhoneLoginScreen } from '../screens/auth/PhoneLoginScreen';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
 
 // Feed and discovery
@@ -90,7 +91,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export function RootNavigator() {
   const theme = useTheme();
   const { scheme } = useThemeMode();
-  const { isSignedIn, backendStatus } = useSession();
+  const { isSignedIn, backendStatus, restoring } = useSession();
 
   /**
    * Where the app opens.
@@ -100,7 +101,8 @@ export function RootNavigator() {
    * broken. While the session is still being checked the splash screen holds,
    * so the user never sees a flash of the wrong screen.
    */
-  const initialRoute = backendStatus === 'checking' ? 'Splash' : isSignedIn ? 'MainTabs' : 'Splash';
+  const initialRoute =
+    restoring || backendStatus === 'checking' ? 'Splash' : isSignedIn ? 'MainTabs' : 'Splash';
 
   const navTheme = {
     ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
@@ -135,6 +137,7 @@ export function RootNavigator() {
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Signup" component={SignupScreen} />
         <Stack.Screen name="Otp" component={OtpScreen} />
+        <Stack.Screen name="PhoneLogin" component={PhoneLoginScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
 
         {/* Shell */}

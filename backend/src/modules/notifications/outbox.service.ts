@@ -19,6 +19,7 @@
 import { query, execute, isDuplicateKey } from '../../core/db.ts';
 import { logger } from '../../core/logger.ts';
 import { sendMail, transportKind } from '../../core/mailer.ts';
+import { sendSms } from '../../core/sms.ts';
 import { config } from '../../core/config.ts';
 
 /** Beyond this a message is not going to be delivered by trying again. */
@@ -29,7 +30,7 @@ const BACKOFF_BASE_SECONDS = 30;
 interface OutboxRow {
   id: number;
   public_id: string;
-  channel: 'email' | 'push';
+  channel: 'email' | 'push' | 'sms';
   destination: string;
   template: string;
   subject: string | null;
@@ -80,6 +81,22 @@ const TEMPLATES: Record<string, (vars: Record<string, unknown>) => RenderedMessa
     text:
       `Your confirmation code is ${String(v.code)}.\n\n` +
       'It expires in 10 minutes and can be used once.',
+  }),
+
+  /*
+   * SMS codes. Separate templates because a text message is not a short email:
+   * it is billed per 160 characters, it has no subject, and the reassurance
+   * paragraph that belongs in an email is just cost here. The app name leads so
+   * the code is identifiable in a notification shade.
+   */
+  'otp.sms.signup': (v) => ({
+    subject: '',
+    text: `${String(v.code)} is your Vyra verification code. It expires in 10 minutes.`,
+  }),
+
+  'otp.sms.login': (v) => ({
+    subject: '',
+    text: `${String(v.code)} is your Vyra sign-in code. It expires in 10 minutes.`,
   }),
 
   'verification.decided': (v) => ({
@@ -161,6 +178,18 @@ export async function drain(limit = 50): Promise<DrainResult> {
           subject: row.subject ?? message.subject,
           text: message.text,
         });
+      } else if (row.channel === 'sms') {
+        const message = render(row.template, row.payload);
+        const result = await sendSms({ to: row.destination, text: message.text });
+        /*
+         * `sendSms` never throws, so an undelivered message has to be turned
+         * into one here. Without this the row would be marked sent and the
+         * platform would believe it had texted somebody it had not — which is
+         * the one failure an OTP channel must never have.
+         */
+        if (!result.delivered) {
+          throw new Error(result.reason ?? 'The SMS gateway did not accept the message.');
+        }
       } else {
         await sendPush(row);
       }
@@ -239,7 +268,7 @@ async function sendPush(row: OutboxRow): Promise<void> {
  * duplicate was reported as successfully queued.
  */
 export async function queue(input: {
-  channel: 'email' | 'push';
+  channel: 'email' | 'push' | 'sms';
   destination: string;
   template: string;
   payload: Record<string, unknown>;

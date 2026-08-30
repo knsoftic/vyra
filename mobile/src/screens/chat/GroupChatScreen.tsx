@@ -62,7 +62,20 @@ export function GroupChatScreen({ navigation, route }: RootScreenProps<'GroupCha
         title: conversation.chat.title,
         participants: [...memberById.values()],
       }
-    : sampleChat;
+    : conversation.live
+      ? /*
+         * Live, but the group has not loaded yet — or cannot be. The sample
+         * group used to stand in, which put an invented group's name and member
+         * list at the top of a real conversation.
+         */
+        {
+          ...sampleChat,
+          id: chatId,
+          title: conversation.loading ? 'Loading…' : 'Conversation unavailable',
+          participants: [],
+          pinnedMessageId: undefined,
+        }
+      : sampleChat;
 
   const toUiMessage = (m: ApiMessage): Message => ({
     id: m.id,
@@ -93,7 +106,16 @@ export function GroupChatScreen({ navigation, route }: RootScreenProps<'GroupCha
   const myId = conversation.live ? me.id : currentUser.id;
   const isTyping = typing.length > 0;
 
-  const pinned = thread.find((m) => m.id === sampleChat.pinnedMessageId) ?? thread[0];
+  /*
+   * Only a genuinely pinned message. This read `sampleChat.pinnedMessageId` and
+   * fell back to `thread[0]`, so every real group presented its oldest loaded
+   * message as pinned — a claim nobody made.
+   */
+  const pinned = chat.pinnedMessageId
+    ? (thread.find((m) => m.id === chat.pinnedMessageId) ?? null)
+    : conversation.live
+      ? null
+      : (thread.find((m) => m.id === sampleChat.pinnedMessageId) ?? thread[0]);
 
   const send = (text: string) => {
     if (conversation.live) {
@@ -183,7 +205,15 @@ export function GroupChatScreen({ navigation, route }: RootScreenProps<'GroupCha
           <Ionicons name="pin" size={14} color={theme.colors.brand} />
           <View style={styles.flex}>
             <Text variant="caption" tone="brand">
-              Pinned by {getUser(pinned.senderId).displayName}
+              {/*
+                `getUser` is the sample lookup, and it returns the sample
+                current user for any id it does not recognise — so a real
+                group's pinned message was attributed to whoever that is. Real
+                members come from the conversation itself.
+              */}
+              Pinned by{' '}
+              {memberById.get(pinned.senderId)?.displayName ??
+                (conversation.live ? 'a member' : getUser(pinned.senderId).displayName)}
             </Text>
             <Text variant="caption" tone="secondary" numberOfLines={1}>
               {pinned.text ?? 'Attachment'}

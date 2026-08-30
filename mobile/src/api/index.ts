@@ -1,6 +1,6 @@
 export {
   api, ApiError, API_BASE, ping,
-  setTokens, getAccessToken, isAuthenticated, setUnauthenticatedHandler,
+  setTokens, getAccessToken, isAuthenticated, restoreTokens, setUnauthenticatedHandler,
 } from './client';
 export {
   auth, me, users, feed, events, creative,

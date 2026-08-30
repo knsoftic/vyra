@@ -107,7 +107,7 @@ adminRouter.get(
  * only whether it is set. A password that can be read out of a settings screen
  * is a password in every reviewer's screen recording.
  */
-const SECRET_KEYS = new Set<string>(['email.smtp_pass']);
+const SECRET_KEYS = new Set<string>(['email.smtp_pass', 'sms.api_key', 'sms.api_secret']);
 
 adminRouter.get(
   '/admin/settings',
