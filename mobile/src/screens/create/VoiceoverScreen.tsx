@@ -1,11 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from 'expo-audio';
 import { Screen, Header, Text, Pressable, Button, Card, Divider } from '../../components';
 import { Slider } from '../../components/Controls';
 import { EditorPreview } from '../../components/create/EditorPreview';
 import { useTheme } from '../../theme';
 import { useApp } from '../../store/AppState';
+import { uploadFile, type UploadProgress } from '../../api/uploads';
 import { formatDuration } from '../../utils/format';
 import type { RootScreenProps } from '../../navigation/types';
 
@@ -13,25 +21,124 @@ export function VoiceoverScreen({ navigation }: RootScreenProps<'Voiceover'>) {
   const theme = useTheme();
   const { compose, setCompose } = useApp();
 
-  const [recording, setRecording] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const [takes, setTakes] = useState<{ id: string; durationSec: number }[]>([]);
+  /**
+   * Takes, on disk and on the server.
+   *
+   * The microphone is opened only while recording — never in the background,
+   * and never without the person pressing record (ADR-008). `stop()` closes it.
+   *
+   * This screen used to count seconds on a `setInterval` and add an entry to a
+   * list; nothing was captured, nothing was uploaded, and the finished video
+   * had no voice on it whatever the screen showed.
+   */
+  interface Take {
+    id: string;
+    uri: string;
+    durationSec: number;
+    /** Storage key once uploaded. Empty while it is still local. */
+    key: string;
+  }
 
-  const totalDuration = compose.clips.reduce((sum, clip) => sum + clip.durationSec / clip.speed, 0) || 30;
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder);
+  const recording = recorderState.isRecording;
 
-  useEffect(() => {
-    if (!recording) return;
-    const interval = setInterval(() => setElapsed((e) => Math.min(totalDuration, e + 0.1)), 100);
-    return () => clearInterval(interval);
-  }, [recording, totalDuration]);
+  const [takes, setTakes] = useState<Take[]>([]);
+  const [uploading, setUploading] = useState<UploadProgress | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const startedAt = useRef(0);
 
-  const stopRecording = () => {
-    setRecording(false);
-    if (elapsed > 0.3) {
-      setTakes((prev) => [...prev, { id: `take_${Date.now()}`, durationSec: elapsed }]);
+  const elapsed = recording ? (recorderState.durationMillis ?? 0) / 1000 : 0;
+
+  const totalDuration =
+    compose.clips.reduce((sum, clip) => {
+      const fullMs = Math.round(clip.durationSec * 1000);
+      const used = (clip.trimEndMs ?? fullMs) - (clip.trimStartMs ?? 0);
+      return sum + Math.max(0, used) / 1000 / (clip.speed || 1);
+    }, 0) || 30;
+
+  const startRecording = useCallback(async () => {
+    setError(null);
+    const permission = await requestRecordingPermissionsAsync();
+    if (!permission.granted) {
+      setError('Microphone access is needed to record a voiceover.');
+      return;
     }
-    setElapsed(0);
-  };
+    try {
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      startedAt.current = Date.now();
+      recorder.record();
+    } catch (err) {
+      setError((err as Error).message || 'Could not start recording.');
+    }
+  }, [recorder]);
+
+  /**
+   * Stops, then uploads the take.
+   *
+   * Uploaded here rather than at publish so a failure surfaces while the person
+   * is still on this screen and can simply record it again.
+   */
+  const stopRecording = useCallback(async () => {
+    const durationSec = (Date.now() - startedAt.current) / 1000;
+    try {
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false });
+    } catch {
+      // Already stopped; the uri below is what matters.
+    }
+
+    const uri = recorder.uri;
+    if (!uri || durationSec < 0.3) return;
+
+    const take: Take = { id: `take_${Date.now()}`, uri, durationSec, key: '' };
+    setTakes((prev) => [...prev, take]);
+
+    try {
+      const completed = await uploadFile(
+        {
+          uri,
+          name: `voiceover-${Date.now()}.m4a`,
+          mimeType: 'audio/m4a',
+          sizeBytes: 0,
+          durationMs: Math.round(durationSec * 1000),
+        },
+        setUploading,
+      );
+      setTakes((prev) => prev.map((t) => (t.id === take.id ? { ...t, key: completed.storageKey } : t)));
+    } catch {
+      setError('That take could not be uploaded. Record it again, or continue without it.');
+      setTakes((prev) => prev.filter((t) => t.id !== take.id));
+    } finally {
+      setUploading(null);
+    }
+  }, [recorder]);
+
+  /*
+   * Uploaded takes become voice tracks on the edit list, laid end to end from
+   * the start of the timeline. A take still uploading is deliberately left out
+   * rather than sent with an empty key, which the server would refuse.
+   */
+  useEffect(() => {
+    const ready = takes.filter((take) => take.key);
+    const others = compose.voiceTracks ?? [];
+    if (ready.length === others.length) return;
+
+    let cursor = 0;
+    setCompose({
+      voiceTracks: ready.map((take) => {
+        const startMs = cursor;
+        cursor += Math.round(take.durationSec * 1000);
+        return {
+          id: take.id,
+          sourceKey: take.key,
+          startMs,
+          durationMs: Math.round(take.durationSec * 1000),
+        };
+      }),
+    });
+  }, [takes, compose.voiceTracks, setCompose]);
 
   const volumeRows = [
     { id: 'original', label: 'Original audio', icon: 'videocam-outline' as const },
@@ -76,7 +183,7 @@ export function VoiceoverScreen({ navigation }: RootScreenProps<'Voiceover'>) {
           </View>
 
           <Pressable
-            onPress={recording ? stopRecording : () => setRecording(true)}
+            onPress={() => void (recording ? stopRecording() : startRecording())}
             haptic
             style={[
               styles.recordButton,

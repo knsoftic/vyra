@@ -118,17 +118,19 @@ export async function publish(userId: number, input: PublishInput): Promise<Publ
   const { videoId, jobId } = await transaction(async (tx) => {
     const videoResult = await execute(
       `INSERT INTO videos
-         (public_id, user_id, category_id, caption, duration_sec, privacy, status,
+         (public_id, user_id, category_id, caption, duration_sec, cover_time_ms, privacy, status,
           allow_comments, allow_share, allow_download, allow_remix, allow_duet,
           location_name, edit_list, render_status)
        VALUES
-         (:publicId, :userId, :categoryId, :caption, :durationSec, :privacy, 'processing',
+         (:publicId, :userId, :categoryId, :caption, :durationSec, :coverTimeMs, :privacy, 'processing',
           :allowComments, :allowShare, :allowDownload, :allowRemix, :allowDuet,
           :locationName, :editList, 'queued')`,
       {
         publicId: videoPublicId,
         userId,
         categoryId: input.categoryId ? Number(input.categoryId) : null,
+        // Null means the pipeline picks a frame; a number is the person's own choice.
+        coverTimeMs: input.coverTimeMs ?? null,
         caption,
         durationSec,
         privacy: PRIVACY[input.privacy],

@@ -716,3 +716,138 @@ test('creation endpoints require authentication', async () => {
     assert.equal(res.status, 401, `${method} ${path} must require authentication`);
   }
 });
+
+// ── The cover frame, and the edits the app now sends ──
+//
+// These paths existed on paper: `coverTimeMs` was accepted by the publish route
+// and thrown away, and the edit list could carry a grade, a beauty pass and a
+// voiceover that no screen ever produced. What is pinned here is that the ones
+// the app now sends survive the round trip.
+
+test('a chosen cover frame is stored, and no choice leaves it to the pipeline', async () => {
+  const { token } = await registerUser();
+
+  const chosen = await api<{ videoId: string }>(
+    'POST', '/api/v1/videos',
+    {
+      editList: edlFor(await uploadFile(token, makeFile(2000))),
+      caption: 'picked my own cover',
+      privacy: 'public',
+      coverTimeMs: 2400,
+    },
+    token,
+  );
+  assert.equal(chosen.status, 201, JSON.stringify(chosen.body.error));
+
+  const withCover = await queryOne<{ cover_time_ms: number | null }>(
+    'SELECT cover_time_ms FROM videos WHERE public_id = ?',
+    [chosen.body.data!.videoId],
+  );
+  assert.equal(Number(withCover!.cover_time_ms), 2400, 'the choice reaches the row');
+
+  const auto = await api<{ videoId: string }>(
+    'POST', '/api/v1/videos',
+    {
+      editList: edlFor(await uploadFile(token, makeFile(2000))),
+      caption: 'let it choose',
+      privacy: 'public',
+    },
+    token,
+  );
+  const withoutCover = await queryOne<{ cover_time_ms: number | null }>(
+    'SELECT cover_time_ms FROM videos WHERE public_id = ?',
+    [auto.body.data!.videoId],
+  );
+  assert.equal(withoutCover!.cover_time_ms, null, 'absent means "choose one for me"');
+});
+
+test('a trimmed clip publishes at its trimmed length, not the source length', async () => {
+  const { token } = await registerUser();
+  const key = await uploadFile(token, makeFile(2000));
+
+  const res = await api<{ videoId: string }>(
+    'POST', '/api/v1/videos',
+    {
+      editList: {
+        ...edlFor(key),
+        clips: [{
+          id: 'c1', sourceKey: key, trimStartMs: 1000, trimEndMs: 3000, speed: 1,
+          rotation: 0, volume: 100, muted: false,
+        }],
+      },
+      caption: 'trimmed',
+      privacy: 'public',
+    },
+    token,
+  );
+  assert.equal(res.status, 201, JSON.stringify(res.body.error));
+
+  const video = await queryOne<{ duration_sec: number }>(
+    'SELECT duration_sec FROM videos WHERE public_id = ?',
+    [res.body.data!.videoId],
+  );
+  assert.equal(Number(video!.duration_sec), 2, 'two seconds kept out of five');
+});
+
+test('a grade, a beauty pass and a voiceover all survive publishing', async () => {
+  const { token } = await registerUser();
+  const key = await uploadFile(token, makeFile(2000));
+  const voiceKey = await uploadFile(token, makeFile(1000));
+
+  const res = await api<{ videoId: string }>(
+    'POST', '/api/v1/videos',
+    {
+      editList: {
+        ...edlFor(key),
+        grade: { brightness: 12, saturation: -30 },
+        beauty: { skinSmoothing: 40, brightness: 10, faceLight: 0, backgroundBlur: 25 },
+        audio: [{
+          id: 'take_1', kind: 'voiceover', sourceKey: voiceKey,
+          startMs: 0, trimStartMs: 0, trimEndMs: 2000, volume: 80,
+        }],
+      },
+      caption: 'graded, smoothed and narrated',
+      privacy: 'public',
+    },
+    token,
+  );
+  assert.equal(res.status, 201, JSON.stringify(res.body.error));
+
+  // The stored edit list is what the renderer reads back, so it has to hold all
+  // three — a screen whose settings do not reach this row cannot change output.
+  const row = await queryOne<{ edit_list: string }>(
+    'SELECT edit_list FROM videos WHERE public_id = ?',
+    [res.body.data!.videoId],
+  );
+  const stored = JSON.parse(String(row!.edit_list)) as {
+    grade?: Record<string, number>;
+    beauty?: Record<string, number>;
+    audio: { kind: string; sourceKey?: string }[];
+  };
+
+  assert.equal(stored.grade?.brightness, 12);
+  assert.equal(stored.grade?.saturation, -30);
+  assert.equal(stored.beauty?.skinSmoothing, 40);
+  assert.equal(stored.audio.find((a) => a.kind === 'voiceover')?.sourceKey, voiceKey);
+});
+
+test('a voiceover pointing at someone else\'s upload is refused', async () => {
+  const mine = await registerUser();
+  const theirs = await registerUser();
+  const key = await uploadFile(mine.token, makeFile(2000));
+  const theirVoice = await uploadFile(theirs.token, makeFile(1000));
+
+  const res = await api('POST', '/api/v1/videos', {
+    editList: {
+      ...edlFor(key),
+      audio: [{
+        id: 'take_1', kind: 'voiceover', sourceKey: theirVoice,
+        startMs: 0, trimStartMs: 0, trimEndMs: 1000, volume: 80,
+      }],
+    },
+    caption: 'not mine to use',
+    privacy: 'public',
+  }, mine.token);
+
+  assert.ok(res.status >= 400, 'ownership is checked on every key, not just the clips');
+});

@@ -10,6 +10,7 @@ import {
 } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import {
   Screen,
   Text,
@@ -21,17 +22,29 @@ import {
   EmptyState,
 } from '../../components';
 import { useTheme } from '../../theme';
-import { speedOptions, musicLibrary, galleryItems, beautyControls } from '../../mock';
+import { speedOptions, beautyControls } from '../../mock';
 import { SliderRow } from '../../components/Controls';
 import { useApp } from '../../store/AppState';
+import { uploadFile, type LocalFile, type UploadProgress } from '../../api/uploads';
+import { ApiError } from '../../api';
 import { formatDuration } from '../../utils/format';
 import type { RootScreenProps } from '../../navigation/types';
 
 const MAX_DURATION = 60;
 const TIMER_OPTIONS = [0, 3, 10];
 
+/**
+ * A recorded segment, on disk.
+ *
+ * `uri` is the file the camera wrote. It used to be absent entirely: recording
+ * was a `setInterval` counting seconds while the camera preview ran, so the
+ * record button produced a duration and nothing else — no footage, and a
+ * "clip" that could never be published because there was no file behind it.
+ */
 interface Clip {
   id: string;
+  uri: string;
+  thumb: string;
   durationSec: number;
   speed: number;
 }
@@ -63,39 +76,30 @@ export function RecordScreen({ navigation }: RootScreenProps<'Record'>) {
   );
 
   const [sheet, setSheet] = useState<'none' | 'speed' | 'timer' | 'beauty' | 'gallery' | 'music'>('none');
+  const [uploading, setUploading] = useState<UploadProgress | null>(null);
+  const [uploadedCount, setUploadedCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
+  const cameraRef = useRef<CameraView>(null);
+  /** Wall-clock start of the segment being recorded, for its real duration. */
+  const startedAt = useRef(0);
   const recordScale = useRef(new Animated.Value(1)).current;
 
   const totalRecorded = clips.reduce((sum, clip) => sum + clip.durationSec, 0) + elapsed;
   const progress = Math.min(1, totalRecorded / MAX_DURATION);
 
-  // Recording tick
+  /*
+   * The on-screen timer.
+   *
+   * Cosmetic only: the clip's real length comes from the wall clock when the
+   * camera hands back the file. This used to BE the recording — it counted up
+   * and a "clip" was whatever number it reached.
+   */
   useEffect(() => {
     if (!recording) return;
-    const interval = setInterval(() => {
-      setElapsed((e) => {
-        const next = e + 0.1;
-        if (next >= MAX_DURATION - clips.reduce((s, c) => s + c.durationSec, 0)) {
-          setRecording(false);
-          return e;
-        }
-        return next;
-      });
-    }, 100);
+    const interval = setInterval(() => setElapsed((Date.now() - startedAt.current) / 1000), 100);
     return () => clearInterval(interval);
-  }, [recording, clips]);
-
-  // Countdown before recording
-  useEffect(() => {
-    if (countdown <= 0) return;
-    const timeout = setTimeout(() => {
-      setCountdown((c) => {
-        if (c === 1) setRecording(true);
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearTimeout(timeout);
-  }, [countdown]);
+  }, [recording]);
 
   useEffect(() => {
     Animated.timing(recordScale, {
@@ -106,34 +110,138 @@ export function RecordScreen({ navigation }: RootScreenProps<'Record'>) {
     }).start();
   }, [recording, recordScale]);
 
+  const recordedSoFar = clips.reduce((sum, clip) => sum + clip.durationSec, 0);
+
+  /**
+   * Records one segment.
+   *
+   * `recordAsync` resolves when recording stops — either because the user
+   * pressed pause, or because `maxDuration` was reached. Both paths land here,
+   * which is why the clip is banked from the resolved file rather than from
+   * whatever the on-screen timer happened to show.
+   */
+  const startRecording = useCallback(async () => {
+    const camera = cameraRef.current;
+    if (!camera) return;
+
+    const remaining = Math.max(1, MAX_DURATION - recordedSoFar);
+    startedAt.current = Date.now();
+    setElapsed(0);
+    setRecording(true);
+    setError(null);
+
+    try {
+      const video = await camera.recordAsync({ maxDuration: Math.ceil(remaining) });
+      const durationSec = Math.min(remaining, (Date.now() - startedAt.current) / 1000);
+
+      // Under half a second is a mis-tap, not a clip.
+      if (!video?.uri || durationSec < 0.5) return;
+
+      // A real frame from the footage, so the timeline shows what was shot.
+      // A failure here is cosmetic and must not lose the clip.
+      let thumb = '';
+      try {
+        const frame = await VideoThumbnails.getThumbnailAsync(video.uri, { time: 0 });
+        thumb = frame.uri;
+      } catch {
+        thumb = '';
+      }
+
+      setClips((prev) => [
+        ...prev,
+        { id: '', uri: video.uri, thumb, durationSec, speed },
+      ]);
+    } catch (err) {
+      setError((err as Error).message || 'Recording failed.');
+    } finally {
+      setRecording(false);
+      setElapsed(0);
+    }
+  }, [recordedSoFar, speed]);
+
+  // Countdown before recording
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timeout = setTimeout(() => {
+      setCountdown((c) => {
+        if (c === 1) void startRecording();
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [countdown, startRecording]);
+
   const handleRecordPress = useCallback(() => {
     if (recording) {
-      // Pause: bank the current segment as a clip.
-      setClips((prev) => [...prev, { id: `clip_${Date.now()}`, durationSec: elapsed, speed }]);
-      setElapsed(0);
-      setRecording(false);
+      // Stopping resolves the promise in `startRecording`, which banks the clip.
+      cameraRef.current?.stopRecording();
       return;
     }
     if (timer > 0) setCountdown(timer);
-    else setRecording(true);
-  }, [recording, elapsed, speed, timer]);
+    else void startRecording();
+  }, [recording, timer, startRecording]);
 
   const deleteLastClip = () => setClips((prev) => prev.slice(0, -1));
 
-  const goToEditor = () => {
-    const banked = elapsed > 0 ? [...clips, { id: `clip_${Date.now()}`, durationSec: elapsed, speed }] : clips;
+  /**
+   * Sends the footage, then opens the editor.
+   *
+   * The editor and the renderer both work from the uploaded key — the server
+   * copy is the one that gets rendered and published. Uploading here rather
+   * than at publish means a failure surfaces while the person is still holding
+   * the camera, when re-shooting is still an option.
+   */
+  const goToEditor = useCallback(async () => {
+    if (clips.length === 0 || uploading) return;
+    setError(null);
+    setUploadedCount(0);
+
+    const uploaded: typeof clips = [];
+    try {
+      for (const clip of clips) {
+        const file: LocalFile = {
+          uri: clip.uri,
+          name: `record-${Date.now()}.mp4`,
+          mimeType: 'video/mp4',
+          sizeBytes: 0,
+          durationMs: Math.round(clip.durationSec * 1000),
+        };
+        const completed = await uploadFile(file, setUploading);
+        uploaded.push({ ...clip, id: completed.storageKey });
+        setUploadedCount((n) => n + 1);
+      }
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.offline
+          ? 'Lost connection. Your clips are still here — press Next to try again.'
+          : 'The upload failed. Your clips are still here.',
+      );
+      setUploading(null);
+      return;
+    }
+
+    setUploading(null);
     setCompose({
-      clips: banked.map((clip, index) => ({
+      clips: uploaded.map((clip) => ({
         id: clip.id,
-        thumb: `https://picsum.photos/seed/rec${index}/120/200`,
+        uri: clip.uri,
+        thumb: clip.thumb,
         durationSec: clip.durationSec,
         speed: clip.speed,
+        trimStartMs: 0,
+        trimEndMs: Math.round(clip.durationSec * 1000),
       })),
+      beauty: {
+        smoothing: beauty.smoothing ?? 0,
+        face_brightness: beauty.face_brightness ?? 0,
+        face_light: beauty.face_light ?? 0,
+        bg_blur: beauty.bg_blur ?? 0,
+      },
     });
     navigation.navigate('Editor');
-  };
+  }, [clips, uploading, beauty, setCompose, navigation]);
 
-  const hasContent = clips.length > 0 || elapsed > 0.4;
+  const hasContent = clips.length > 0;
 
   const sideTools = [
     { id: 'flip', icon: 'camera-reverse-outline' as const, label: 'Flip', onPress: () => setFacing((f) => (f === 'back' ? 'front' : 'back')) },
@@ -196,7 +304,13 @@ export function RecordScreen({ navigation }: RootScreenProps<'Record'>) {
 
   return (
     <View style={styles.root}>
-      <CameraView style={StyleSheet.absoluteFill} facing={facing} flash={flash} mode="video" />
+      <CameraView
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        facing={facing}
+        flash={flash}
+        mode="video"
+      />
 
       {/* Multi-clip progress */}
       <View style={[styles.progressTrack, { top: insets.top + 4 }]}>
@@ -308,11 +422,24 @@ export function RecordScreen({ navigation }: RootScreenProps<'Record'>) {
         <View style={styles.controlRow}>
           {/* Gallery */}
           <Pressable onPress={() => navigation.navigate('Upload')} style={styles.sideAction}>
-            <Image
-              source={{ uri: galleryItems[0].thumb }}
-              style={[styles.galleryThumb, { borderRadius: theme.radius.sm }]}
-              contentFit="cover"
-            />
+            {/*
+              An icon, not a picture. This showed `galleryItems[0].thumb` — a
+              stock photo from the sample set, presented where a person would
+              read it as the most recent video in their own gallery.
+            */}
+            <View
+              style={[
+                styles.galleryThumb,
+                {
+                  borderRadius: theme.radius.sm,
+                  backgroundColor: 'rgba(255,255,255,0.16)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+              ]}
+            >
+              <Ionicons name="images-outline" size={20} color="#FFF" />
+            </View>
             <Text variant="caption" tone="onDark">
               Upload
             </Text>
@@ -363,9 +490,31 @@ export function RecordScreen({ navigation }: RootScreenProps<'Record'>) {
           </View>
         </View>
 
+        {error ? (
+          <View style={styles.notice}>
+            <Ionicons name="alert-circle-outline" size={16} color="#FF8A8A" />
+            <Text variant="caption" style={{ color: '#FF8A8A', flex: 1 }}>
+              {error}
+            </Text>
+          </View>
+        ) : null}
+
         {hasContent ? (
           <View style={styles.nextRow}>
-            <Button label="Next" variant="gradient" icon="checkmark" onPress={goToEditor} />
+            <Button
+              // The clips are uploaded before the editor opens, so the label
+              // says what is happening rather than appearing to hang.
+              label={
+                uploading
+                  ? `Uploading ${uploadedCount + 1} of ${clips.length}… ${Math.round(uploading.fraction * 100)}%`
+                  : 'Next'
+              }
+              variant="gradient"
+              icon={uploading ? undefined : 'checkmark'}
+              loading={uploading !== null}
+              disabled={uploading !== null}
+              onPress={() => void goToEditor()}
+            />
           </View>
         ) : null}
       </View>
@@ -429,38 +578,30 @@ export function RecordScreen({ navigation }: RootScreenProps<'Record'>) {
         </ScrollView>
       </Sheet>
 
-      {/* Music sheet */}
-      <Sheet visible={sheet === 'music'} onClose={() => setSheet('none')} title="Add sound" height={0.6}>
-        <ScrollView>
-          {musicLibrary.slice(0, 8).map((sound) => (
-            <ListRow
-              key={sound.id}
-              label={sound.title}
-              description={sound.artist}
-              left={
-                <Image
-                  source={{ uri: sound.cover }}
-                  style={{ width: 44, height: 44, borderRadius: theme.radius.sm }}
-                  contentFit="cover"
-                />
-              }
-              onPress={() => setSheet('none')}
-              showChevron={false}
-              right={<Ionicons name="play-circle-outline" size={22} color={theme.colors.textSecondary} />}
-            />
-          ))}
-          <View style={{ padding: theme.spacing.md }}>
-            <Button
-              label="Browse full music library"
-              variant="secondary"
-              fullWidth
-              onPress={() => {
-                setSheet('none');
-                navigation.navigate('Music');
-              }}
-            />
-          </View>
-        </ScrollView>
+      {/*
+        Sound.
+
+        This used to list eight tracks from the sample set, and tapping one only
+        closed the sheet — invented song titles that selected nothing. The music
+        library is a real, searchable screen backed by the server's catalogue,
+        so this hands over to it rather than imitating it badly.
+      */}
+      <Sheet visible={sheet === 'music'} onClose={() => setSheet('none')} title="Add sound" height={0.35}>
+        <View style={{ padding: theme.spacing.md, gap: theme.spacing.sm }}>
+          <Text variant="body" tone="secondary">
+            Pick a track from the library. You can also add or change it later in the editor.
+          </Text>
+          <Button
+            label="Open music library"
+            variant="primary"
+            fullWidth
+            icon="musical-notes-outline"
+            onPress={() => {
+              setSheet('none');
+              navigation.navigate('Music');
+            }}
+          />
+        </View>
       </Sheet>
     </View>
   );
@@ -547,5 +688,12 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   recordInner: { width: 68, height: 68 },
+  notice: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
   nextRow: { alignItems: 'center' },
 });

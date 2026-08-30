@@ -44,6 +44,8 @@ interface VideoRow {
   user_id: number;
   caption: string;
   duration_sec: number;
+  /** The creator's chosen poster frame, or null to let the pipeline pick. */
+  cover_time_ms: number | null;
   privacy: string;
 }
 
@@ -276,8 +278,20 @@ async function runThumbnails(video: VideoRow): Promise<void> {
   const posterPath = localFilePath(posterKey);
   await mkdir(path.dirname(posterPath), { recursive: true });
 
-  // A frame a little way in: videos very often open on black.
-  const at = Math.min(1, Number(video.duration_sec) / 4);
+  /*
+   * The frame the creator chose, or a guess.
+   *
+   * A quarter of the way in and never past one second is a decent default,
+   * because videos very often open on black — but it is only a default. A
+   * chosen frame wins, clamped inside the video so a stale choice from a
+   * longer edit cannot seek past the end.
+   */
+  const durationSec = Number(video.duration_sec);
+  const chosenMs = video.cover_time_ms === null ? null : Number(video.cover_time_ms);
+  const at =
+    chosenMs !== null && Number.isFinite(chosenMs)
+      ? Math.min(Math.max(0, chosenMs / 1000), Math.max(0, durationSec - 0.1))
+      : Math.min(1, durationSec / 4);
   await runFfmpeg(posterArgs(source, at, posterPath));
 
   await execute(
@@ -426,7 +440,7 @@ const RUNNERS: Record<Stage, (video: VideoRow) => Promise<void>> = {
  */
 export async function advance(videoId: number): Promise<Stage | null> {
   const video = await queryOne<VideoRow>(
-    'SELECT id, public_id, user_id, caption, duration_sec, privacy FROM videos WHERE id = :id',
+    'SELECT id, public_id, user_id, caption, duration_sec, cover_time_ms, privacy FROM videos WHERE id = :id',
     { id: videoId },
   );
   if (!video) return null;

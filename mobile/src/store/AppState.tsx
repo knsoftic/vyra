@@ -26,9 +26,37 @@ interface SessionState {
 
 // ───────────────────────── Compose (create) draft ───────────────────────
 
+/**
+ * One piece of footage on the timeline.
+ *
+ * `id` is the server's storage key once the clip has been uploaded, and that is
+ * what the edit list is built from — the renderer resolves ownership from it.
+ * `uri` is the file on the device, kept so the editor can show and scrub the
+ * real footage rather than a placeholder image.
+ *
+ * The trim points are stored here rather than applied to the file: nothing is
+ * cut on the device. The server renders from the edit list, so trimming is a
+ * pair of numbers travelling with the clip, and it stays reversible right up
+ * until publish.
+ */
+export interface ComposeClip {
+  /** Storage key from the upload. Empty until the clip has been sent. */
+  id: string;
+  /** The local file, if this clip came from the camera or the gallery. */
+  uri?: string;
+  thumb: string;
+  durationSec: number;
+  speed: number;
+  /** Milliseconds into the source where this clip starts. */
+  trimStartMs?: number;
+  /** Milliseconds into the source where it ends. Defaults to the full length. */
+  trimEndMs?: number;
+  rotation?: 0 | 90 | 180 | 270;
+}
+
 export interface ComposeState {
   /** Clips captured or picked, in timeline order. */
-  clips: { id: string; thumb: string; durationSec: number; speed: number }[];
+  clips: ComposeClip[];
   filterId: string;
   /**
    * The chosen filter's appearance, carried with the selection.
@@ -50,6 +78,23 @@ export interface ComposeState {
   volumes: { original: number; music: number; voice: number };
   textOverlays: { id: string; text: string; color: string; font: string }[];
   stickers: { id: string; emoji: string }[];
+  /**
+   * Beauty settings, chosen while recording and applied by the renderer.
+   *
+   * Render-only, and deliberately never a ranking or targeting signal
+   * (ADR-008 / PHASE_04). Stored here because the camera cannot apply them to
+   * the recorded file — the server can, and the edit list carries them.
+   */
+  beauty: { smoothing: number; face_brightness: number; face_light: number; bg_blur: number };
+  /**
+   * Voiceover takes that have been recorded and uploaded, in timeline order.
+   *
+   * Held here rather than on the voiceover screen so they survive navigating
+   * away and back, and so `buildEditList` can put them on the render.
+   */
+  voiceTracks?: { id: string; sourceKey: string; startMs: number; durationMs: number }[];
+  /** Which frame becomes the poster. Milliseconds into the finished timeline. */
+  coverFrameMs?: number;
   coverFrameId?: string;
   caption: string;
   hashtags: string[];
@@ -94,6 +139,7 @@ const defaultAdjustments = Object.fromEntries(
 
 const emptyCompose = (): ComposeState => ({
   clips: [],
+  beauty: { smoothing: 0, face_brightness: 0, face_light: 0, bg_blur: 0 },
   filterId: filters[0].id,
   filterColor: filters[0].previewColor,
   filterIntensity: filters[0].intensity,

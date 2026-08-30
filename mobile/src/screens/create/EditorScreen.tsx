@@ -2,31 +2,74 @@ import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import { Screen, Text, Pressable, Button, Sheet, ListRow, Badge } from '../../components';
+import { Screen, Text, Pressable, Button, Sheet, ListRow, Badge, EmptyState } from '../../components';
+import { SliderRow } from '../../components/Controls';
 import { EditorPreview } from '../../components/create/EditorPreview';
 import { useTheme } from '../../theme';
-import { speedOptions, editorClips } from '../../mock';
-import { useApp } from '../../store/AppState';
+import { speedOptions } from '../../mock';
+import { useApp, type ComposeClip } from '../../store/AppState';
 import { formatDuration } from '../../utils/format';
 import type { RootScreenProps } from '../../navigation/types';
 
-type ClipTool = 'trim' | 'split' | 'delete' | 'speed' | 'rotate' | 'crop' | 'duplicate';
+/*
+ * `crop` is deliberately absent.
+ *
+ * The edit list can express a crop rectangle and the renderer applies one, but
+ * there is no way to choose that rectangle here yet — and a Crop button that
+ * silently does nothing is worse than no Crop button. It comes back with the
+ * frame picker that lets someone actually draw it.
+ */
+type ClipTool = 'trim' | 'split' | 'delete' | 'speed' | 'rotate' | 'duplicate';
 
 export function EditorScreen({ navigation }: RootScreenProps<'Editor'>) {
   const theme = useTheme();
   const { compose, setCompose } = useApp();
 
-  const clips = compose.clips.length > 0 ? compose.clips : editorClips;
+  /*
+   * The footage being edited, and only real footage.
+   *
+   * This fell back to `editorClips` — the bundled samples — whenever compose
+   * was empty, so the editor would happily let someone trim, split and publish
+   * clips that do not exist and whose storage keys the server has never seen.
+   * Anyone here arrived from Record or Upload, so an empty timeline means
+   * something went wrong, and saying so is more use than pretending.
+   */
+  const clips: ComposeClip[] = compose.clips;
   const [selectedClip, setSelectedClip] = useState(clips[0]?.id);
   const [speedSheet, setSpeedSheet] = useState(false);
+  const [trimSheet, setTrimSheet] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
 
-  const totalDuration = clips.reduce((sum, clip) => sum + clip.durationSec / clip.speed, 0);
+  /** What the finished video will actually run to, trims and speeds included. */
+  const usedSeconds = (clip: (typeof clips)[number]) => {
+    const fullMs = Math.round(clip.durationSec * 1000);
+    const startMs = clip.trimStartMs ?? 0;
+    const endMs = clip.trimEndMs ?? fullMs;
+    return Math.max(0, endMs - startMs) / 1000 / (clip.speed || 1);
+  };
+
+  const totalDuration = clips.reduce((sum, clip) => sum + usedSeconds(clip), 0);
   const active = clips.find((clip) => clip.id === selectedClip) ?? clips[0];
 
   const pushHistory = (action: string) => setHistory((prev) => [...prev, action]);
 
+  /** Replaces the selected clip, keeping the rest of the timeline in order. */
+  const replaceActive = (patch: Partial<(typeof clips)[number]>) => {
+    if (!active) return;
+    setCompose({
+      clips: clips.map((clip) => (clip.id === active.id ? { ...clip, ...patch } : clip)),
+    });
+  };
+
+  /*
+   * Every branch here changes the clip. The default used to be
+   * `pushHistory('Applied ' + tool)` — trim, split, rotate and crop each added
+   * a line to the undo list claiming an edit that never happened, which is a
+   * worse failure than a button doing nothing: the history said it worked.
+   */
   const applyClipTool = (tool: ClipTool) => {
+    if (!active) return;
+
     if (tool === 'delete') {
       const next = clips.filter((clip) => clip.id !== selectedClip);
       setCompose({ clips: next });
@@ -34,14 +77,50 @@ export function EditorScreen({ navigation }: RootScreenProps<'Editor'>) {
       pushHistory('Deleted clip');
       return;
     }
+
     if (tool === 'speed') return setSpeedSheet(true);
-    if (tool === 'duplicate' && active) {
+    if (tool === 'trim') return setTrimSheet(true);
+
+    if (tool === 'rotate') {
+      const next = (((active.rotation ?? 0) + 90) % 360) as 0 | 90 | 180 | 270;
+      replaceActive({ rotation: next });
+      pushHistory(`Rotated to ${next}°`);
+      return;
+    }
+
+    if (tool === 'duplicate') {
       const copy = { ...active, id: `${active.id}_copy_${Date.now()}` };
       setCompose({ clips: [...clips, copy] });
       pushHistory('Duplicated clip');
       return;
     }
-    pushHistory(`Applied ${tool}`);
+
+    if (tool === 'split') {
+      /*
+       * Two clips from one source, with adjacent trim ranges. Nothing is cut on
+       * the device — the renderer reads both entries and lays them end to end,
+       * which is also why the halves can be reordered or trimmed separately
+       * afterwards.
+       */
+      const fullMs = Math.round(active.durationSec * 1000);
+      const startMs = active.trimStartMs ?? 0;
+      const endMs = active.trimEndMs ?? fullMs;
+      if (endMs - startMs < 400) {
+        pushHistory('Too short to split');
+        return;
+      }
+      const midMs = startMs + Math.round((endMs - startMs) / 2);
+
+      const first = { ...active, trimEndMs: midMs };
+      const second = { ...active, id: `${active.id}_b_${Date.now()}`, trimStartMs: midMs };
+      const index = clips.findIndex((clip) => clip.id === active.id);
+      const next = [...clips];
+      next.splice(index, 1, first, second);
+
+      setCompose({ clips: next });
+      pushHistory('Split clip');
+      return;
+    }
   };
 
   const moveClip = (direction: -1 | 1) => {
@@ -59,7 +138,6 @@ export function EditorScreen({ navigation }: RootScreenProps<'Editor'>) {
     { id: 'trim', label: 'Trim', icon: 'cut-outline' },
     { id: 'split', label: 'Split', icon: 'git-branch-outline' },
     { id: 'speed', label: 'Speed', icon: 'speedometer-outline' },
-    { id: 'crop', label: 'Crop', icon: 'crop-outline' },
     { id: 'rotate', label: 'Rotate', icon: 'refresh-outline' },
     { id: 'duplicate', label: 'Duplicate', icon: 'copy-outline' },
     { id: 'delete', label: 'Delete', icon: 'trash-outline' },
@@ -81,6 +159,25 @@ export function EditorScreen({ navigation }: RootScreenProps<'Editor'>) {
     { id: 'voice', label: 'Voiceover', icon: 'mic-outline', route: 'Voiceover' },
     { id: 'cover', label: 'Cover', icon: 'image-outline', route: 'CoverPicker' },
   ];
+
+  // Nothing to edit. Reachable only if the footage was lost between screens.
+  if (clips.length === 0) {
+    return (
+      <Screen dark background="#0A0A0B">
+        <View style={styles.emptyRoot}>
+          <EmptyState
+            icon="film-outline"
+            title="No footage to edit"
+            description="Record something or pick a video from your gallery, and the editor will open with it."
+          />
+          <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+            <Button label="Record" variant="primary" onPress={() => navigation.replace('Record')} />
+            <Button label="Upload" variant="secondary" onPress={() => navigation.replace('Upload')} />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen dark background="#0A0A0B">
@@ -257,6 +354,71 @@ export function EditorScreen({ navigation }: RootScreenProps<'Editor'>) {
         />
       </View>
 
+      {/*
+        Trim.
+
+        Two positions inside the source, in milliseconds. Nothing is cut on the
+        device — the numbers travel with the clip and the renderer applies them,
+        which is what keeps the trim reversible right up until publish.
+      */}
+      <Sheet visible={trimSheet} onClose={() => setTrimSheet(false)} title="Trim clip" height={0.45}>
+        {active ? (
+          <View style={{ padding: theme.spacing.md, gap: theme.spacing.sm }}>
+            <Text variant="caption" tone="muted">
+              Keeping {formatDuration(usedSeconds(active))} of {formatDuration(active.durationSec)}
+            </Text>
+
+            <SliderRow
+              label="Start"
+              value={Math.round((active.trimStartMs ?? 0) / 100) / 10}
+              min={0}
+              max={Math.max(0.1, active.durationSec - 0.2)}
+              defaultValue={0}
+              onChange={(seconds) => {
+                const startMs = Math.round(seconds * 1000);
+                const endMs = active.trimEndMs ?? Math.round(active.durationSec * 1000);
+                // The two handles cannot cross; 200ms is the shortest usable clip.
+                replaceActive({ trimStartMs: Math.min(startMs, endMs - 200) });
+              }}
+            />
+
+            <SliderRow
+              label="End"
+              value={Math.round((active.trimEndMs ?? Math.round(active.durationSec * 1000)) / 100) / 10}
+              min={0.2}
+              max={active.durationSec}
+              defaultValue={active.durationSec}
+              onChange={(seconds) => {
+                const endMs = Math.round(seconds * 1000);
+                const startMs = active.trimStartMs ?? 0;
+                replaceActive({ trimEndMs: Math.max(endMs, startMs + 200) });
+              }}
+            />
+
+            <View style={{ flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm }}>
+              <Button
+                label="Reset"
+                variant="secondary"
+                onPress={() =>
+                  replaceActive({
+                    trimStartMs: 0,
+                    trimEndMs: Math.round(active.durationSec * 1000),
+                  })
+                }
+              />
+              <Button
+                label="Done"
+                variant="primary"
+                onPress={() => {
+                  pushHistory('Trimmed clip');
+                  setTrimSheet(false);
+                }}
+              />
+            </View>
+          </View>
+        ) : null}
+      </Sheet>
+
       <Sheet visible={speedSheet} onClose={() => setSpeedSheet(false)} title="Clip speed" height={0.4}>
         {speedOptions.map((option) => (
           <ListRow
@@ -285,6 +447,7 @@ export function EditorScreen({ navigation }: RootScreenProps<'Editor'>) {
 }
 
 const styles = StyleSheet.create({
+  emptyRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
   flex: { flex: 1 },
   disabled: { opacity: 0.35 },
   topBar: {
