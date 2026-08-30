@@ -15,6 +15,8 @@ import {
 } from '../../components';
 import { useTheme } from '../../theme';
 import { useApp } from '../../store/AppState';
+import { publishVideo, saveDraft as saveDraftApi } from '../../api/publish';
+import { ApiError } from '../../api';
 import type { RootScreenProps } from '../../navigation/types';
 import type { VideoPrivacy } from '../../types';
 
@@ -29,6 +31,7 @@ export function PostSettingsScreen({ navigation }: RootScreenProps<'PostSettings
   const theme = useTheme();
   const { compose, setCompose, resetCompose } = useApp();
   const [publishing, setPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const interactionRows = [
     { id: 'allowComments', label: 'Allow comments', icon: 'chatbubble-outline' as const },
@@ -38,18 +41,76 @@ export function PostSettingsScreen({ navigation }: RootScreenProps<'PostSettings
     { id: 'allowDuet', label: 'Allow Duet', icon: 'people-circle-outline' as const },
   ] as const;
 
-  const publish = () => {
+  /**
+   * Publishes for real.
+   *
+   * This was a 900ms `setTimeout` that reset the draft and navigated home —
+   * so every "publish" appeared to succeed and nothing was ever posted. The
+   * video now goes to the server, which queues the render; the feed shows it
+   * once processing finishes.
+   */
+  const publish = async () => {
+    if (publishing) return;
+
+    if (compose.clips.length === 0) {
+      setError('There is no video to post yet. Record or upload one first.');
+      return;
+    }
+
     setPublishing(true);
-    setTimeout(() => {
-      setPublishing(false);
+    setError(null);
+    try {
+      await publishVideo(compose, {
+        caption: compose.caption,
+        privacy: compose.privacy,
+        allowComments: compose.interaction.allowComments,
+        allowShare: compose.interaction.allowShare,
+        allowDownload: compose.interaction.allowDownload,
+        allowRemix: compose.interaction.allowRemix,
+        allowDuet: compose.interaction.allowDuet,
+        ...(compose.location ? { locationName: compose.location } : {}),
+      });
+
+      // Reset only after the server confirmed. Clearing the draft first would
+      // lose the edit on a failed request.
       resetCompose();
+      Alert.alert(
+        'Posted',
+        'Your video is being processed and appears in your profile once it is ready.',
+      );
       navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
-    }, 900);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.offline
+            ? 'Could not reach the server. Your edit is safe — try again.'
+            : err.message
+          : 'Posting failed.',
+      );
+    } finally {
+      setPublishing(false);
+    }
   };
 
-  const saveDraft = () => {
-    resetCompose();
-    navigation.navigate('Drafts');
+  /** Saved on the server, so a draft survives reinstalling the app. */
+  const saveDraft = async () => {
+    if (publishing) return;
+    if (compose.clips.length === 0) {
+      setError('There is nothing to save yet.');
+      return;
+    }
+
+    setPublishing(true);
+    setError(null);
+    try {
+      await saveDraftApi(compose, compose.caption);
+      resetCompose();
+      navigation.navigate('Drafts');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save the draft.');
+    } finally {
+      setPublishing(false);
+    }
   };
 
   return (
@@ -179,6 +240,20 @@ export function PostSettingsScreen({ navigation }: RootScreenProps<'PostSettings
         </Card>
       </ScrollView>
 
+      {error ? (
+        <View
+          style={[
+            styles.errorBar,
+            { backgroundColor: theme.colors.surface, paddingHorizontal: theme.spacing.md },
+          ]}
+        >
+          <Ionicons name="alert-circle-outline" size={16} color={theme.colors.danger} />
+          <Text variant="caption" style={{ color: theme.colors.danger, flex: 1 }}>
+            {error}
+          </Text>
+        </View>
+      ) : null}
+
       <View
         style={[
           styles.footer,
@@ -189,12 +264,12 @@ export function PostSettingsScreen({ navigation }: RootScreenProps<'PostSettings
           },
         ]}
       >
-        <Button label="Save draft" variant="outline" onPress={saveDraft} style={styles.flex} />
+        <Button label="Save draft" variant="outline" onPress={() => void saveDraft()} style={styles.flex} />
         <Button
           label="Post"
           variant="gradient"
           loading={publishing}
-          onPress={publish}
+          onPress={() => void publish()}
           style={styles.flex}
         />
       </View>
@@ -204,6 +279,7 @@ export function PostSettingsScreen({ navigation }: RootScreenProps<'PostSettings
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  errorBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
   summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   promoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   footer: {

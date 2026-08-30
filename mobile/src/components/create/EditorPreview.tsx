@@ -28,8 +28,12 @@ export function EditorPreview({
   const theme = useTheme();
   const { compose } = useApp();
 
-  const filterId = overrideFilterId ?? compose.filterId;
-  const filter = filters.find((f) => f.id === filterId) ?? filters[0];
+  // An override is only used by the filter carousel, which passes a sample id;
+  // everything else reads the appearance the picker stored.
+  const override = overrideFilterId ? filters.find((f) => f.id === overrideFilterId) : undefined;
+  const filterColor = override?.previewColor ?? compose.filterColor;
+  const filterIntensity = override?.intensity ?? compose.filterIntensity;
+  const filterName = override?.name ?? compose.filterName;
 
   const firstClip = compose.clips[0];
   const poster = firstClip?.thumb ?? 'https://picsum.photos/seed/preview/540/960';
@@ -41,11 +45,11 @@ export function EditorPreview({
       <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} contentFit="cover" />
 
       {/* Filter tint */}
-      {filter.previewColor !== 'transparent' ? (
+      {filterColor !== 'transparent' ? (
         <View
           style={[
             StyleSheet.absoluteFill,
-            { backgroundColor: filter.previewColor, opacity: filter.intensity / 100 },
+            { backgroundColor: filterColor, opacity: filterIntensity / 100 },
           ]}
         />
       ) : null}
@@ -112,10 +116,10 @@ export function EditorPreview({
         </View>
       ))}
 
-      {showFilterName && filter.id !== 'f_original' ? (
+      {showFilterName && filterColor !== 'transparent' ? (
         <View style={styles.filterTag}>
           <Text variant="caption" tone="onDark">
-            {filter.name}
+            {filterName}
           </Text>
         </View>
       ) : null}

@@ -18,7 +18,10 @@ export function FiltersScreen({ navigation }: RootScreenProps<'Filters'>) {
   const theme = useTheme();
   const { compose, setCompose } = useApp();
   const [group, setGroup] = useState<FilterGroup>('all');
-  const [intensity, setIntensity] = useState(80);
+  // Read from the draft, not local state: the slider used to move a number that
+  // was never stored anywhere, so intensity was lost the moment you left.
+  const intensity = compose.filterIntensity;
+  const setIntensity = (next: number) => setCompose({ filterIntensity: next });
 
   // The catalogue is server-driven, which is what makes "an admin adds a filter
   // and it appears without an app release" true rather than aspirational.
@@ -123,7 +126,14 @@ export function FiltersScreen({ navigation }: RootScreenProps<'Filters'>) {
           return (
             <Pressable
               key={filter.id}
-              onPress={() => setCompose({ filterId: filter.id })}
+              onPress={() =>
+                setCompose({
+                  filterId: filter.id,
+                  filterColor: filter.previewColor,
+                  filterIntensity: filter.intensity,
+                  filterName: filter.name,
+                })
+              }
               style={styles.filterItem}
               haptic
             >

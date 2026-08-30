@@ -28,6 +28,20 @@ export interface ComposeState {
   /** Clips captured or picked, in timeline order. */
   clips: { id: string; thumb: string; durationSec: number; speed: number }[];
   filterId: string;
+  /**
+   * The chosen filter's appearance, carried with the selection.
+   *
+   * The preview used to resolve `filterId` against the bundled sample list,
+   * which stopped working the moment the picker started listing the server's
+   * real catalogue: a live id matched nothing, the lookup fell back to
+   * "Original", and selecting a filter appeared to do nothing at all.
+   *
+   * Carrying the two values the preview actually needs removes the lookup —
+   * and with it the possibility of the two lists disagreeing again.
+   */
+  filterColor: string;
+  filterIntensity: number;
+  filterName: string;
   adjustments: Record<string, number>;
   effectIds: string[];
   sound?: Sound;
@@ -77,6 +91,9 @@ const defaultAdjustments = Object.fromEntries(
 const emptyCompose = (): ComposeState => ({
   clips: [],
   filterId: filters[0].id,
+  filterColor: filters[0].previewColor,
+  filterIntensity: filters[0].intensity,
+  filterName: filters[0].name,
   adjustments: { ...defaultAdjustments },
   effectIds: [],
   volumes: { original: 100, music: 60, voice: 80 },
