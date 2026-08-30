@@ -67,6 +67,13 @@
         "projectId": "70841dd3-d48c-4cf7-b6d7-db69c420447e"
       }
     },
-    "owner": "knsoftic01"
+    "owner": "knsoftic01",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

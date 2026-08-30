@@ -12,7 +12,6 @@
         "EXPO_PUBLIC_API_URL": "http://10.0.2.2:4000"
       }
     },
-
     "preview": {
       "distribution": "internal",
       "android": {
@@ -20,9 +19,9 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://knbazaar.com"
-      }
+      },
+      "channel": "preview"
     },
-
     "production": {
       "autoIncrement": true,
       "android": {
@@ -30,7 +29,8 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://knbazaar.com"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {
