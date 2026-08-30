@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
 import { User, Video, Sound, VideoPrivacy, VideoInteractionSettings } from '../types';
 import { currentUser, videos as mockVideos, walletBalance, filters, adjustmentControls } from '../mock';
+import { engagement } from '../api/engagement';
+import { users as usersApi } from '../api';
 
 /**
  * App-level state for Phase 1.
@@ -75,6 +77,8 @@ interface InteractionState {
   toggleLike: (videoId: string) => void;
   toggleSave: (videoId: string) => void;
   toggleFollow: (userId: string) => void;
+  /** Loads the viewer's like/save state for a page of videos, in one request. */
+  syncEngagement: (videoIds: string[]) => void;
   isLiked: (video: Video) => boolean;
   isSaved: (video: Video) => boolean;
   isFollowing: (user: User) => boolean;
@@ -165,9 +169,60 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const toggleLike = useCallback((videoId: string) => toggleInSet(setLikedIds, videoId), []);
-  const toggleSave = useCallback((videoId: string) => toggleInSet(setSavedIds, videoId), []);
-  const toggleFollow = useCallback((userId: string) => toggleInSet(setFollowingIds, userId), []);
+  /**
+   * Interactions go to the server.
+   *
+   * These used to change a local Set and nothing else — the heart filled in,
+   * the count never moved, and closing the app forgot it. A like that only the
+   * screen knows about is not a like.
+   *
+   * The screen still updates first, because waiting on a round trip to fill a
+   * heart feels broken. If the request fails the change is put back, so the
+   * screen never keeps a state the server rejected.
+   */
+  const toggleLike = useCallback(
+    (videoId: string) => {
+      const wasLiked = likedIds.has(videoId);
+      toggleInSet(setLikedIds, videoId);
+      const request = wasLiked ? engagement.unlike(videoId) : engagement.like(videoId);
+      void request.catch(() => toggleInSet(setLikedIds, videoId));
+    },
+    [likedIds],
+  );
+
+  const toggleSave = useCallback(
+    (videoId: string) => {
+      const wasSaved = savedIds.has(videoId);
+      toggleInSet(setSavedIds, videoId);
+      const request = wasSaved ? engagement.unsave(videoId) : engagement.save(videoId);
+      void request.catch(() => toggleInSet(setSavedIds, videoId));
+    },
+    [savedIds],
+  );
+
+  const toggleFollow = useCallback(
+    (userId: string) => {
+      const wasFollowing = followingIds.has(userId);
+      toggleInSet(setFollowingIds, userId);
+      const request = wasFollowing ? usersApi.unfollow(userId) : usersApi.follow(userId);
+      void request.catch(() => toggleInSet(setFollowingIds, userId));
+    },
+    [followingIds],
+  );
+
+  /** Seeds the liked/saved sets for a page of the feed, in one request. */
+  const syncEngagement = useCallback((videoIds: string[]) => {
+    if (videoIds.length === 0) return;
+    void engagement
+      .stateFor(videoIds)
+      .then((state) => {
+        setLikedIds((prev) => new Set([...prev, ...state.liked]));
+        setSavedIds((prev) => new Set([...prev, ...state.saved]));
+      })
+      .catch(() => {
+        // Signed out or offline: the sets stay as they are.
+      });
+  }, []);
 
   const isLiked = useCallback((video: Video) => likedIds.has(video.id), [likedIds]);
   const isSaved = useCallback((video: Video) => savedIds.has(video.id), [savedIds]);
@@ -193,6 +248,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       toggleLike,
       toggleSave,
       toggleFollow,
+      syncEngagement,
       isLiked,
       isSaved,
       isFollowing,

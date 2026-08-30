@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { useTheme } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useFeed, type FeedTab } from '../../hooks/useFeed';
 import { useEventQueue } from '../../hooks/useEventQueue';
+import { useApp } from '../../store/AppState';
 import type { TabScreenProps } from '../../navigation/types';
 
 const TABS: { id: FeedTab; label: string }[] = [
@@ -23,6 +24,19 @@ export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
   const [tab, setTab] = useState<FeedTab>('for_you');
   const { videos, source, refreshing, ranker, refresh } = useFeed(tab);
   const { track } = useEventQueue();
+  const { syncEngagement } = useApp();
+
+  /**
+   * Ask once per page which of these the viewer already liked or saved.
+   *
+   * Without this the hearts start empty on every launch, so a video you liked
+   * yesterday looks unliked today — the state was on the server all along, the
+   * screen just never asked for it.
+   */
+  useEffect(() => {
+    if (source !== 'live' || videos.length === 0) return;
+    syncEngagement(videos.map((video) => video.id));
+  }, [videos, source, syncEngagement]);
 
   /**
    * Emits the exposure signal for whatever the viewer is currently looking at.

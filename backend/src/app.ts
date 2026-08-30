@@ -30,6 +30,7 @@ import { monetizationRouter } from './modules/wallet/monetization.routes.ts';
 import { promotionRouter } from './modules/promotion/promotion.routes.ts';
 import { trustRouter } from './modules/trust/trust.routes.ts';
 import { notificationsRouter } from './modules/notifications/notifications.routes.ts';
+import { engagementRouter } from './modules/social/engagement.routes.ts';
 import { adminRouter } from './modules/admin/admin.routes.ts';
 import { adminContentRouter } from './modules/admin/admin-content.routes.ts';
 import { adminMoneyRouter } from './modules/admin/admin-money.routes.ts';
@@ -106,6 +107,7 @@ export function createApp(): Express {
   api.use(promotionRouter);
   api.use(trustRouter);
   api.use(notificationsRouter);
+  api.use(engagementRouter);
   api.use(adminRouter);
   api.use(adminContentRouter);
   api.use(adminMoneyRouter);
