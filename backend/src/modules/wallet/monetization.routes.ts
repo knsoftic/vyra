@@ -24,6 +24,7 @@ import { emitToUser } from '../../socket.ts';
 import * as purchases from './purchases.service.ts';
 import * as withdrawals from './withdrawals.service.ts';
 import * as rewards from './rewards.service.ts';
+import * as eligibility from './monetization.service.ts';
 
 export const monetizationRouter: Router = Router();
 
@@ -179,6 +180,35 @@ monetizationRouter.get(
   asyncHandler(async (req, res) => {
     const { userId } = req as AuthedRequest;
     res.json(ok(await rewards.listTasks(userId)));
+  }),
+);
+
+// ── Monetization eligibility ──
+
+monetizationRouter.get(
+  '/me/monetization',
+  requireAuth,
+  limits.read,
+  asyncHandler(async (req, res) => {
+    const { userId } = req as AuthedRequest;
+    res.json(ok(await eligibility.monetizationStatus(userId)));
+  }),
+);
+
+/**
+ * Applying.
+ *
+ * `limits.money` rather than `limits.write`: this puts an account into a
+ * queue a human works through, and the rate a person can join that queue
+ * should match the rest of the money surface.
+ */
+monetizationRouter.post(
+  '/me/monetization/apply',
+  requireAuth,
+  limits.money,
+  asyncHandler(async (req, res) => {
+    const { userId } = req as AuthedRequest;
+    res.json(ok(await eligibility.applyForMonetization(userId)));
   }),
 );
 

@@ -22,6 +22,10 @@ import { AppError } from '../../core/errors.ts';
 import { query, execute } from '../../core/db.ts';
 import { audit } from '../../middleware/audit.ts';
 import * as admin from './admin.service.ts';
+import {
+  MONETIZATION_METRICS,
+  isMonetizationMetric,
+} from '../wallet/monetization.service.ts';
 
 export const adminMoneyRouter: Router = Router();
 const guard: RequestHandler[] = [requireAuth, requireAdmin];
@@ -41,6 +45,8 @@ function editor(options: {
   };
   /** Only for tables that carry `deleted_at`. */
   softDelete?: boolean;
+  /** Checked after the type checks, for rules a column type cannot express. */
+  validateValues?: (values: Record<string, string | number | boolean>) => void;
 }): void {
   const idColumn = options.idColumn ?? 'id';
 
@@ -128,6 +134,8 @@ function editor(options: {
             throw new AppError('validation_failed', `'${column}' is required.`);
           }
         }
+
+        options.validateValues?.(body.values);
 
         const columns: string[] = [];
         const placeholders: string[] = [];
@@ -352,6 +360,21 @@ editor({
       unit: 'string', is_boolean: 'boolean', is_enabled: 'boolean', sort_order: 'number',
     },
     required: ['criterion_key', 'label', 'metric', 'required'],
+  },
+  /*
+   * A criterion is only worth anything if something measures it. An unknown
+   * metric blocks every creator from qualifying — correct, but a miserable way
+   * to discover a typo, so it is refused here with the valid names in the
+   * message rather than silently accepted.
+   */
+  validateValues: (values) => {
+    const metric = values.metric;
+    if (typeof metric === 'string' && !isMonetizationMetric(metric)) {
+      throw new AppError(
+        'validation_failed',
+        `'${metric}' is not a metric this platform measures. Use one of: ${MONETIZATION_METRICS.join(', ')}.`,
+      );
+    }
   },
 });
 

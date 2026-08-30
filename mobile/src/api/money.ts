@@ -167,7 +167,39 @@ export const money = {
       .then((r) => r.data),
 
   referrals: () => api.get<ReferralSummary>('/me/referrals').then((r) => r.data),
+
+  monetization: () => api.get<MonetizationStatus>('/me/monetization').then((r) => r.data),
+
+  applyForMonetization: () =>
+    api.post<MonetizationStatus>('/me/monetization/apply').then((r) => r.data),
 };
+
+export type MonetizationState = 'locked' | 'eligible' | 'review' | 'enabled' | 'suspended';
+
+export interface MonetizationCriterion {
+  id: string;
+  label: string;
+  metric: string;
+  current: number;
+  required: number;
+  unit: string | null;
+  isBoolean: boolean;
+  met: boolean;
+  /** False when nothing measures this metric — it blocks rather than passes. */
+  measurable: boolean;
+}
+
+export interface MonetizationStatus {
+  state: MonetizationState;
+  progress: number;
+  criteriaMet: number;
+  criteria: MonetizationCriterion[];
+  canApply: boolean;
+  appliedAt: string | null;
+  enabledAt: string | null;
+  reviewNote: string | null;
+  unmeasurable: string[];
+}
 
 /**
  * A key for one money-moving intent.

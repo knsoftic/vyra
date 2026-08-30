@@ -166,11 +166,15 @@ before(async () => {
 after(async () => {
   try {
     __setMemoForTesting(null);
+    await execute("DELETE FROM monetization_criteria WHERE criterion_key LIKE 'test\\_%'");
+    await execute('UPDATE monetization_criteria SET is_enabled = 1');
     for (const email of createdEmails) {
       const user = await queryOne<{ id: number }>('SELECT id FROM users WHERE email = ?', [email]);
       if (!user) continue;
       const id = user.id;
 
+      await execute('DELETE FROM user_monetization WHERE user_id = ?', [id]);
+      await execute('DELETE FROM moderation_actions WHERE target_type = ? AND target_id = ?', ['user', id]);
       await execute('DELETE FROM user_task_progress WHERE user_id = ?', [id]);
       await execute('DELETE FROM referrals WHERE referrer_id = ? OR referred_id = ?', [id, id]);
       await execute('DELETE FROM referral_codes WHERE user_id = ?', [id]);
@@ -764,4 +768,220 @@ test('every movement leaves a ledger row that reconstructs the balance', async (
       `${row.entry_type} must reconstruct`,
     );
   }
+});
+// ── Monetization eligibility ──
+//
+// The screen behind this rendered one fixed sample for every account. What
+// matters here is that a requirement nobody measures can never let someone
+// through, and that applying re-checks rather than trusting what the app says.
+
+interface Status {
+  state: string;
+  progress: number;
+  criteriaMet: number;
+  criteria: {
+    id: string; label: string; metric: string; current: number; required: number;
+    met: boolean; measurable: boolean; isBoolean: boolean;
+  }[];
+  canApply: boolean;
+  appliedAt: string | null;
+  unmeasurable: string[];
+}
+
+/** A criterion of our own, so no test depends on the seeded thresholds. */
+async function addCriterion(
+  key: string,
+  metric: string,
+  required: number,
+  opts: { isBoolean?: boolean; enabled?: boolean } = {},
+): Promise<void> {
+  await execute(
+    `INSERT INTO monetization_criteria
+       (criterion_key, label, metric, required, unit, is_boolean, is_enabled, sort_order)
+     VALUES (:key, :key, :metric, :required, NULL, :isBoolean, :enabled, 900)`,
+    {
+      key, metric, required,
+      isBoolean: opts.isBoolean ? 1 : 0,
+      enabled: opts.enabled === false ? 0 : 1,
+    },
+  );
+}
+
+/** Runs `body` with only this test's own criteria enforced. */
+async function onlyTestCriteria<T>(body: () => Promise<T>): Promise<T> {
+  await execute("UPDATE monetization_criteria SET is_enabled = 0 WHERE criterion_key NOT LIKE 'test\\_%'");
+  try {
+    return await body();
+  } finally {
+    await execute("UPDATE monetization_criteria SET is_enabled = 1 WHERE criterion_key NOT LIKE 'test\\_%'");
+    await execute("DELETE FROM monetization_criteria WHERE criterion_key LIKE 'test\\_%'");
+  }
+}
+
+test('requirements are measured, not assumed', async () => {
+  const user = await registerUser();
+
+  const res = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+  assert.equal(res.status, 200, JSON.stringify(res.body.error));
+
+  const s = res.body.data!;
+  assert.ok(s.criteria.length > 0, 'the platform publishes requirements');
+  assert.equal(s.state, 'locked', 'a brand new account has not qualified');
+  assert.equal(s.canApply, false);
+
+  const followers = s.criteria.find((c) => c.metric === 'followers');
+  assert.ok(followers, 'followers is one of the seeded requirements');
+  assert.equal(followers!.current, 0);
+  assert.equal(followers!.met, false);
+
+  const restriction = s.criteria.find((c) => c.metric === 'no_active_restriction');
+  assert.equal(restriction!.met, true, 'nobody has restricted this account');
+});
+
+test('a restriction in force fails its requirement, and lifting it passes again', async () => {
+  const user = await registerUser();
+  const admin = await registerUser();
+  await makeAdmin(admin);
+
+  const before = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+  assert.equal(
+    before.body.data!.criteria.find((c) => c.metric === 'no_active_restriction')!.met, true);
+
+  const action = await execute(
+    `INSERT INTO moderation_actions (admin_id, target_type, target_id, action, reason)
+     VALUES (:adminId, 'user', :userId, 'suspension', 'test')`,
+    { adminId: admin.id, userId: user.id },
+  );
+
+  const during = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+  assert.equal(
+    during.body.data!.criteria.find((c) => c.metric === 'no_active_restriction')!.met, false,
+    'a live suspension is a failed requirement');
+
+  // Reverted actions are history, not restrictions.
+  await execute('UPDATE moderation_actions SET reverted_at = NOW(3) WHERE id = ?', [action.insertId]);
+
+  const after = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+  assert.equal(
+    after.body.data!.criteria.find((c) => c.metric === 'no_active_restriction')!.met, true,
+    'lifting it counts again');
+});
+
+test('a requirement nothing measures blocks rather than passes', async () => {
+  const user = await registerUser();
+
+  await onlyTestCriteria(async () => {
+    await addCriterion('test_unknown', 'vibes', 1);
+
+    const res = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+    const s = res.body.data!;
+
+    const row = s.criteria.find((c) => c.id === 'test_unknown')!;
+    assert.equal(row.measurable, false, 'nothing measures "vibes"');
+    assert.equal(row.met, false, 'and an unmeasured requirement is never met');
+    assert.deepEqual(s.unmeasurable, ['vibes'], 'the operator is told which one');
+    assert.equal(s.canApply, false);
+
+    const applied = await api('POST', '/api/v1/me/monetization/apply', undefined, user.token);
+    assert.equal(applied.status, 503, 'and applying is refused rather than granted');
+  });
+});
+
+test('meeting every requirement makes an account eligible, and applying queues it', async () => {
+  const user = await registerUser();
+
+  await onlyTestCriteria(async () => {
+    await addCriterion('test_age', 'account_age_days', 0);
+    await addCriterion('test_clean', 'no_active_restriction', 1, { isBoolean: true });
+
+    const eligible = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+    assert.equal(eligible.body.data!.state, 'eligible');
+    assert.equal(eligible.body.data!.progress, 100);
+    assert.equal(eligible.body.data!.canApply, true);
+
+    const applied = await api<Status>('POST', '/api/v1/me/monetization/apply', undefined, user.token);
+    assert.equal(applied.status, 200, JSON.stringify(applied.body.error));
+    assert.equal(applied.body.data!.state, 'review');
+    assert.ok(applied.body.data!.appliedAt);
+
+    // Applying twice is not an error, and does not move the queue position.
+    const again = await api<Status>('POST', '/api/v1/me/monetization/apply', undefined, user.token);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.data!.appliedAt, applied.body.data!.appliedAt, 'the first time stands');
+  });
+});
+
+test('re-measuring never overrides a decision that a person made', async () => {
+  const user = await registerUser();
+
+  await onlyTestCriteria(async () => {
+    await addCriterion('test_free', 'account_age_days', 0);
+
+    await api('GET', '/api/v1/me/monetization', undefined, user.token);
+    await api('POST', '/api/v1/me/monetization/apply', undefined, user.token);
+
+    // An admin turns it on. Then the bar moves out of reach.
+    await execute(
+      "UPDATE user_monetization SET state = 'enabled', enabled_at = NOW(3) WHERE user_id = ?",
+      [user.id],
+    );
+    await execute("UPDATE monetization_criteria SET required = 99999 WHERE criterion_key = 'test_free'");
+
+    const res = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+    assert.equal(res.body.data!.state, 'enabled',
+      'losing ground must not silently switch off an approved account');
+    assert.equal(res.body.data!.criteriaMet, 0, 'though the progress it reports stays honest');
+  });
+});
+
+test('progress reflects how close each requirement is, not just how many are done', async () => {
+  const user = await registerUser();
+
+  await onlyTestCriteria(async () => {
+    await addCriterion('test_far', 'followers', 100);
+    await addCriterion('test_done', 'account_age_days', 0);
+
+    const res = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+    assert.equal(res.body.data!.criteriaMet, 1);
+    assert.equal(res.body.data!.progress, 50, 'one finished, one at zero');
+  });
+});
+
+test('a requirement that is switched off is not enforced', async () => {
+  const user = await registerUser();
+
+  await onlyTestCriteria(async () => {
+    await addCriterion('test_off', 'followers', 100000, { enabled: false });
+    await addCriterion('test_on', 'account_age_days', 0);
+
+    const res = await api<Status>('GET', '/api/v1/me/monetization', undefined, user.token);
+    assert.ok(!res.body.data!.criteria.some((c) => c.id === 'test_off'), 'switched off, so absent');
+    assert.equal(res.body.data!.state, 'eligible');
+  });
+});
+
+test('monetization status needs a session', async () => {
+  assert.equal((await api('GET', '/api/v1/me/monetization')).status, 401);
+  assert.equal((await api('POST', '/api/v1/me/monetization/apply')).status, 401);
+});
+
+test('an admin cannot create a criterion nothing can measure', async () => {
+  const admin = await registerUser();
+  await makeAdmin(admin);
+
+  const bad = await api<unknown>(
+    'POST', '/api/v1/admin/criteria',
+    { values: { criterion_key: 'test_typo', label: 'Typo', metric: 'folowers', required: 10 } },
+    admin.token,
+  );
+  assert.equal(bad.status, 400, 'a typo is refused where it is made');
+  assert.match(bad.body.error!.message, /followers/, 'and the valid names are offered');
+
+  const good = await api<unknown>(
+    'POST', '/api/v1/admin/criteria',
+    { values: { criterion_key: 'test_ok', label: 'Real', metric: 'followers', required: 10 } },
+    admin.token,
+  );
+  assert.equal(good.status, 201, JSON.stringify(good.body.error));
+  await execute("DELETE FROM monetization_criteria WHERE criterion_key = 'test_ok'");
 });
