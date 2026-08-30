@@ -1,36 +1,90 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Screen,
   Header,
   Text,
   Pressable,
-  Button,
   Card,
   StatCard,
-  Segmented,
   ChipRow,
   SectionTitle,
-  VideoTile,
-  Badge,
-  ListRow,
-  Divider,
+  Segmented,
+  EmptyState,
 } from '../../components';
 import { BarChart, TrendChart, BreakdownBars, ProgressRing } from '../../components/Charts';
+import { SourceNote } from '../../components/DataSource';
 import { useTheme } from '../../theme';
-import { creatorAnalytics } from '../../mock';
-import { formatCount, percent } from '../../utils/format';
+import { useApiData } from '../../hooks/useApiData';
+import { analytics as analyticsApi, type CreatorAnalytics } from '../../api/analytics';
+import { formatCount } from '../../utils/format';
 import type { RootScreenProps } from '../../navigation/types';
 
-type Tab = 'overview' | 'content' | 'audience' | 'revenue';
+type Tab = 'overview' | 'content' | 'audience';
 
+const RANGES = [
+  { id: '7', label: '7 days' },
+  { id: '28', label: '28 days' },
+  { id: '90', label: '90 days' },
+];
+
+/** Empty state while nothing has been measured — never a placeholder chart. */
+const EMPTY: CreatorAnalytics = {
+  days: 28,
+  followers: 0,
+  followerGrowth: 0,
+  views: 0,
+  likes: 0,
+  comments: 0,
+  shares: 0,
+  saves: 0,
+  profileVisits: 0,
+  giftCoins: 0,
+  watchTimeHours: 0,
+  avgWatchSeconds: null,
+  completionRate: null,
+  rewatchRate: null,
+  viewsSeries: [],
+  followerSeries: [],
+  watchMinutesSeries: [],
+  categories: [],
+  sources: [],
+  topVideos: [],
+  hasNoVideos: true,
+};
+
+/**
+ * The creator dashboard.
+ *
+ * Every number here was measured. It used to render a fixed sample — 1.28M
+ * views, 61.2% completion, "+18%" beside figures nothing had compared — for
+ * every account including brand-new ones.
+ *
+ * Rates are nullable on purpose: "nobody has watched yet" and "everyone left
+ * immediately" are different facts, and showing 0% for the first is a lie about
+ * the creator's work.
+ */
 export function CreatorDashboardScreen({ navigation }: RootScreenProps<'CreatorDashboard'>) {
   const theme = useTheme();
   const [tab, setTab] = useState<Tab>('overview');
-  const [range, setRange] = useState('7d');
+  const [range, setRange] = useState('28');
 
-  const a = creatorAnalytics;
+  const { data: a, source, loading } = useApiData<CreatorAnalytics>(
+    () => analyticsApi.creator(Number(range)),
+    EMPTY,
+    [range],
+    { fallbackOnEmpty: false },
+  );
+
+  const live = source === 'live';
+  const rate = (value: number | null) => (value === null ? '—' : `${value}%`);
+
+  /** A series is only worth drawing once something is in it. */
+  const hasSeries = (points: { value: number }[]) => points.some((p) => p.value > 0);
+  const chartData = (points: { day: string; value: number }[]) =>
+    points.map((p) => ({ label: p.day.slice(5), value: p.value }));
 
   return (
     <Screen>
@@ -43,235 +97,253 @@ export function CreatorDashboardScreen({ navigation }: RootScreenProps<'CreatorD
         }
       />
 
-      <View style={{ paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.sm }}>
-        <Segmented
-          options={[
-            { id: 'overview', label: 'Overview' },
-            { id: 'content', label: 'Content' },
-            { id: 'audience', label: 'Audience' },
-            { id: 'revenue', label: 'Revenue' },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
-      </View>
-
-      <View style={{ paddingBottom: theme.spacing.sm }}>
-        <ChipRow
-          items={[
-            { id: '7d', label: 'Last 7 days' },
-            { id: '28d', label: 'Last 28 days' },
-            { id: '60d', label: 'Last 60 days' },
-            { id: 'all', label: 'All time' },
-          ]}
-          selectedId={range}
-          onSelect={setRange}
-        />
-      </View>
-
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-        {tab === 'overview' ? (
+        <SourceNote
+          source={source}
+          noun="analytics"
+          liveHint="every figure here was measured on your account"
+          sampleHint="sign in to see your own analytics"
+        />
+
+        <ChipRow
+          items={RANGES}
+          selectedId={range}
+          onSelect={(id) => setRange(id)}
+        />
+
+        <View style={{ paddingHorizontal: theme.spacing.md, paddingTop: theme.spacing.xs }}>
+          <Segmented
+            options={[
+              { id: 'overview', label: 'Overview' },
+              { id: 'content', label: 'Content' },
+              { id: 'audience', label: 'Audience' },
+            ]}
+            value={tab}
+            onChange={setTab}
+          />
+        </View>
+
+        {loading ? (
+          <View style={styles.loading}>
+            <ActivityIndicator color={theme.colors.brand} />
+          </View>
+        ) : live && a.hasNoVideos ? (
+          <EmptyState
+            icon="stats-chart-outline"
+            title="Nothing measured yet"
+            description="Post a video and this fills with what actually happens to it — views, watch time, where people found it."
+          />
+        ) : (
           <>
-            <View style={[styles.statsGrid, { paddingHorizontal: theme.spacing.md }]}>
-              <StatCard label="Followers" value={formatCount(a.followers)} delta={`+${formatCount(a.followerGrowth)}`} icon="people-outline" tone="brand" />
-              <StatCard label="Views" value={formatCount(a.views)} delta="+18%" icon="play-outline" />
-              <StatCard label="Likes" value={formatCount(a.likes)} delta="+12%" icon="heart-outline" />
-              <StatCard label="Watch time" value={`${formatCount(a.watchTimeHours)}h`} delta="+22%" icon="time-outline" tone="success" />
-            </View>
+            {tab === 'overview' ? (
+              <>
+                <View style={styles.statGrid}>
+                  <StatCard
+                    label="Followers"
+                    value={formatCount(a.followers)}
+                    delta={a.followerGrowth > 0 ? `+${formatCount(a.followerGrowth)}` : undefined}
+                    icon="people-outline"
+                    tone="brand"
+                  />
+                  <StatCard label="Views" value={formatCount(a.views)} icon="play-outline" />
+                  <StatCard label="Likes" value={formatCount(a.likes)} icon="heart-outline" />
+                  <StatCard
+                    label="Watch time"
+                    value={`${a.watchTimeHours}h`}
+                    icon="time-outline"
+                    tone="success"
+                  />
+                </View>
 
-            <SectionTitle title="Views" />
-            <Card padded>
-              <BarChart data={a.viewsSeries} height={150} />
-            </Card>
+                <SectionTitle title={`Views · last ${a.days} days`} />
+                <Card padded>
+                  {hasSeries(a.viewsSeries) ? (
+                    <BarChart data={chartData(a.viewsSeries)} height={150} />
+                  ) : (
+                    <Text variant="caption" tone="muted">
+                      No views in this period yet.
+                    </Text>
+                  )}
+                </Card>
 
-            <SectionTitle title="Follower growth" />
-            <Card padded>
-              <TrendChart data={a.followerSeries} height={120} />
-            </Card>
+                <SectionTitle title="New followers" />
+                <Card padded>
+                  {hasSeries(a.followerSeries) ? (
+                    <TrendChart data={chartData(a.followerSeries)} height={120} />
+                  ) : (
+                    <Text variant="caption" tone="muted">
+                      Nobody has followed you in this period.
+                    </Text>
+                  )}
+                </Card>
 
-            <SectionTitle title="Watch quality" />
-            <Card padded>
-              <View style={styles.qualityRow}>
-                <ProgressRing percent={a.completionRate} label="Completion" />
-                <ProgressRing percent={a.rewatchRate} label="Rewatch" accent={theme.colors.accent} />
-                <View style={styles.qualityText}>
-                  <Text variant="h2">{a.avgWatchSeconds.toFixed(1)}s</Text>
-                  <Text variant="caption" tone="muted">
-                    Average watch time
+                <SectionTitle title="How people watch" />
+                <Card padded>
+                  {a.completionRate === null ? (
+                    <Text variant="caption" tone="muted">
+                      These appear once someone has watched a video. Nothing has been watched in
+                      this period — which is not the same as people leaving early.
+                    </Text>
+                  ) : (
+                    <View style={styles.ringRow}>
+                      <ProgressRing percent={a.completionRate} label="Completion" />
+                      <ProgressRing
+                        percent={a.rewatchRate ?? 0}
+                        label="Rewatch"
+                        accent={theme.colors.accent}
+                      />
+                      <View style={styles.avgBlock}>
+                        <Text variant="h2">
+                          {a.avgWatchSeconds === null ? '—' : `${a.avgWatchSeconds}s`}
+                        </Text>
+                        <Text variant="caption" tone="muted">
+                          Average watch
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </Card>
+              </>
+            ) : null}
+
+            {tab === 'content' ? (
+              <>
+                <View style={styles.statGrid}>
+                  <StatCard label="Comments" value={formatCount(a.comments)} icon="chatbubble-outline" />
+                  <StatCard label="Shares" value={formatCount(a.shares)} icon="arrow-redo-outline" />
+                  <StatCard label="Saves" value={formatCount(a.saves)} icon="bookmark-outline" />
+                  <StatCard
+                    label="Completion"
+                    value={rate(a.completionRate)}
+                    icon="checkmark-done-outline"
+                    tone="success"
+                  />
+                </View>
+
+                <SectionTitle title="Watch minutes per day" />
+                <Card padded>
+                  {hasSeries(a.watchMinutesSeries) ? (
+                    <BarChart
+                      data={chartData(a.watchMinutesSeries)}
+                      height={140}
+                      accent={theme.colors.accent}
+                    />
+                  ) : (
+                    <Text variant="caption" tone="muted">
+                      No watch time recorded in this period.
+                    </Text>
+                  )}
+                </Card>
+
+                <SectionTitle title="Your most watched" />
+                {a.topVideos.length === 0 ? (
+                  <Card padded>
+                    <Text variant="caption" tone="muted">
+                      Nothing published yet.
+                    </Text>
+                  </Card>
+                ) : (
+                  <View style={{ gap: theme.spacing.xs }}>
+                    {a.topVideos.map((video, index) => (
+                      <Pressable
+                        key={video.id}
+                        onPress={() => navigation.navigate('VideoPlayer', { videoId: video.id })}
+                        style={[
+                          styles.videoRow,
+                          {
+                            backgroundColor: theme.colors.surface,
+                            marginHorizontal: theme.spacing.md,
+                            borderRadius: theme.radius.md,
+                            padding: theme.spacing.sm,
+                          },
+                        ]}
+                      >
+                        <Text variant="h3" tone="muted" style={styles.rank}>
+                          {index + 1}
+                        </Text>
+                        {video.posterUrl ? (
+                          <Image
+                            source={{ uri: video.posterUrl }}
+                            style={[styles.poster, { borderRadius: theme.radius.sm }]}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.poster,
+                              { borderRadius: theme.radius.sm, backgroundColor: theme.colors.surfaceAlt },
+                            ]}
+                          />
+                        )}
+                        <View style={styles.flex}>
+                          <Text variant="label" numberOfLines={2}>
+                            {video.caption || 'Untitled'}
+                          </Text>
+                          <View style={styles.videoStats}>
+                            <Text variant="caption" tone="muted">
+                              {formatCount(video.views)} views
+                            </Text>
+                            <Text variant="caption" tone="muted">
+                              {formatCount(video.likes)} likes
+                            </Text>
+                            <Text variant="caption" tone="muted">
+                              {formatCount(video.watchMinutes)} min watched
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </>
+            ) : null}
+
+            {tab === 'audience' ? (
+              <>
+                <View style={styles.statGrid}>
+                  <StatCard label="Profile visits" value={formatCount(a.profileVisits)} icon="person-outline" />
+                  <StatCard
+                    label="Gift coins"
+                    value={formatCount(a.giftCoins)}
+                    icon="gift-outline"
+                    tone="gold"
+                  />
+                </View>
+
+                <SectionTitle title="Where people find you" />
+                <Card padded>
+                  {a.sources.length > 0 ? (
+                    <BreakdownBars items={a.sources} />
+                  ) : (
+                    <Text variant="caption" tone="muted">
+                      This shows which parts of the app brought people to your videos, once there
+                      are views to attribute.
+                    </Text>
+                  )}
+                </Card>
+
+                <SectionTitle title="What they watch most" />
+                <Card padded>
+                  {a.categories.length > 0 ? (
+                    <BreakdownBars items={a.categories} />
+                  ) : (
+                    <Text variant="caption" tone="muted">
+                      Your categories appear here, weighted by watch time.
+                    </Text>
+                  )}
+                </Card>
+
+                <View style={[styles.note, { paddingHorizontal: theme.spacing.md, paddingTop: theme.spacing.md }]}>
+                  <Ionicons name="shield-checkmark-outline" size={14} color={theme.colors.textMuted} />
+                  <Text variant="caption" tone="muted" style={styles.flex}>
+                    These figures come from what the platform measured, never from an estimate. You
+                    are never shown who watched — only how many, and how they arrived.
                   </Text>
                 </View>
-              </View>
-              <Divider />
-              <Text variant="caption" tone="muted" style={{ marginTop: theme.spacing.sm }}>
-                Completion and watch time matter more than follower count. A video that holds
-                attention keeps getting shown to new audiences.
-              </Text>
-            </Card>
+              </>
+            ) : null}
           </>
-        ) : null}
-
-        {tab === 'content' ? (
-          <>
-            <View style={[styles.statsGrid, { paddingHorizontal: theme.spacing.md }]}>
-              <StatCard label="Shares" value={formatCount(a.shares)} icon="arrow-redo-outline" />
-              <StatCard label="Saves" value={formatCount(a.saves)} icon="bookmark-outline" />
-              <StatCard label="Profile visits" value={formatCount(a.profileVisits)} icon="person-outline" />
-              <StatCard label="Completion" value={percent(a.completionRate, 1)} icon="checkmark-done-outline" tone="success" />
-            </View>
-
-            <SectionTitle title="Top performing videos" />
-            <View style={{ gap: theme.spacing.xs }}>
-              {a.topVideos.map((video, index) => (
-                <Pressable
-                  key={video.id}
-                  onPress={() => navigation.navigate('VideoPlayer', { videoId: video.id })}
-                  style={[
-                    styles.videoRow,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      marginHorizontal: theme.spacing.md,
-                      borderRadius: theme.radius.md,
-                      padding: theme.spacing.sm,
-                    },
-                  ]}
-                >
-                  <Text variant="h3" tone="muted" style={styles.rank}>
-                    {index + 1}
-                  </Text>
-                  <VideoTile video={video} width={48} showViews={false} />
-                  <View style={styles.flex}>
-                    <Text variant="label" numberOfLines={2}>
-                      {video.caption}
-                    </Text>
-                    <View style={styles.videoStats}>
-                      <Text variant="caption" tone="muted">
-                        {formatCount(video.stats.views)} views
-                      </Text>
-                      <Text variant="caption" tone="muted">
-                        {formatCount(video.stats.likes)} likes
-                      </Text>
-                    </View>
-                  </View>
-                  {video.quality ? (
-                    <Badge
-                      label={`Q ${video.quality.overall}`}
-                      tone={video.quality.overall >= 85 ? 'success' : video.quality.overall >= 70 ? 'accent' : 'neutral'}
-                      size="sm"
-                    />
-                  ) : null}
-                </Pressable>
-              ))}
-            </View>
-          </>
-        ) : null}
-
-        {tab === 'audience' ? (
-          <>
-            <SectionTitle title="What your audience watches" />
-            <Card padded>
-              <BreakdownBars items={a.audienceCategories} />
-            </Card>
-
-            <SectionTitle title="When they are active" />
-            <Card padded>
-              <BarChart
-                data={[
-                  { label: '00', value: 12 },
-                  { label: '04', value: 6 },
-                  { label: '08', value: 28 },
-                  { label: '12', value: 54 },
-                  { label: '16', value: 71 },
-                  { label: '20', value: 96 },
-                  { label: '23', value: 44 },
-                ]}
-                height={130}
-                accent={theme.colors.accent}
-              />
-              <Text variant="caption" tone="muted" style={{ marginTop: theme.spacing.sm }}>
-                Your audience is most active around 20:00. Posting shortly before that tends to
-                catch the early test audience while they are online.
-              </Text>
-            </Card>
-
-            <SectionTitle title="Audience overlap" />
-            <Card>
-              <ListRow label="Returning viewers" value="61%" showChevron={false} icon="repeat-outline" />
-              <Divider inset={60} />
-              <ListRow label="New viewers" value="39%" showChevron={false} icon="person-add-outline" />
-              <Divider inset={60} />
-              <ListRow label="Followers watching" value="44%" showChevron={false} icon="people-outline" />
-            </Card>
-          </>
-        ) : null}
-
-        {tab === 'revenue' ? (
-          <>
-            <View style={[styles.statsGrid, { paddingHorizontal: theme.spacing.md }]}>
-              <StatCard label="Gift coins" value={formatCount(a.giftsCoins)} icon="gift-outline" tone="gold" />
-              <StatCard label="This month" value="8,400" delta="+34%" icon="trending-up-outline" tone="success" />
-            </View>
-
-            <SectionTitle title="Gift coins over time" />
-            <Card padded>
-              <BarChart
-                data={[
-                  { label: 'W1', value: 3400 },
-                  { label: 'W2', value: 5200 },
-                  { label: 'W3', value: 4100 },
-                  { label: 'W4', value: 8400 },
-                ]}
-                height={140}
-                accent={theme.colors.gold}
-                showValues
-              />
-            </Card>
-
-            <SectionTitle title="Payouts" />
-            <Card>
-              <ListRow
-                label="Live gift earnings"
-                description="Gifts received while streaming"
-                icon="sparkles-outline"
-                onPress={() => navigation.navigate('LiveEarnings')}
-              />
-              <Divider inset={60} />
-              <ListRow
-                label="Withdraw earnings"
-                description="USDT, bank transfer or mobile wallet"
-                icon="arrow-up-circle-outline"
-                onPress={() => navigation.navigate('Withdraw')}
-              />
-              <Divider inset={60} />
-              <ListRow
-                label="Monetization status"
-                icon="ribbon-outline"
-                onPress={() => navigation.navigate('Monetization')}
-              />
-              <Divider inset={60} />
-              <ListRow label="Wallet balance" icon="wallet-outline" onPress={() => navigation.navigate('Wallet')} />
-              <Divider inset={60} />
-              <ListRow label="Transaction history" icon="receipt-outline" onPress={() => navigation.navigate('Transactions')} />
-              <Divider inset={60} />
-              <ListRow
-                label="Payout method"
-                description="Set up how you receive earnings"
-                icon="card-outline"
-                value="Not set"
-                onPress={() => navigation.navigate('Withdraw')}
-              />
-            </Card>
-
-            <View style={{ padding: theme.spacing.md }}>
-              <Button
-                label="Promote a video"
-                variant="gradient"
-                fullWidth
-                icon="trending-up"
-                onPress={() => navigation.navigate('Promotion', {})}
-              />
-            </View>
-          </>
-        ) : null}
+        )}
       </ScrollView>
     </Screen>
   );
@@ -279,10 +351,13 @@ export function CreatorDashboardScreen({ navigation }: RootScreenProps<'CreatorD
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  qualityRow: { flexDirection: 'row', alignItems: 'center', gap: 16, justifyContent: 'space-around' },
-  qualityText: { alignItems: 'center' },
+  loading: { paddingVertical: 60, alignItems: 'center' },
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16 },
+  ringRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  avgBlock: { alignItems: 'center' },
   videoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  rank: { width: 20, textAlign: 'center' },
-  videoStats: { flexDirection: 'row', gap: 12, marginTop: 3 },
+  rank: { width: 22, textAlign: 'center' },
+  poster: { width: 48, height: 64 },
+  videoStats: { flexDirection: 'row', gap: 12, marginTop: 2, flexWrap: 'wrap' },
+  note: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
 });

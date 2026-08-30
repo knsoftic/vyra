@@ -20,6 +20,7 @@ import { asyncHandler } from '../../middleware/async.ts';
 import { validate, valid } from '../../middleware/validate.ts';
 import { limits } from '../../middleware/ratelimit.ts';
 import { optionalAuth, requireAuth, type AuthedRequest } from '../../middleware/auth.ts';
+import * as analytics from './analytics.service.ts';
 import { storage } from '../../core/storage.ts';
 
 export const videosRouter: Router = Router();
@@ -83,6 +84,40 @@ const SELECT = `
     JOIN users u ON u.id = v.user_id
     JOIN user_profiles p ON p.user_id = v.user_id
 `;
+
+const analyticsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).optional(),
+});
+
+/**
+ * The creator dashboard.
+ *
+ * Only ever the caller's own numbers — there is no route for reading someone
+ * else's analytics, because there is no reason for one to exist.
+ */
+videosRouter.get(
+  '/me/analytics',
+  requireAuth,
+  limits.read,
+  validate({ query: analyticsQuerySchema }),
+  asyncHandler(async (req: Request, res) => {
+    const { userId } = req as AuthedRequest;
+    const { days } = valid<{ query: typeof analyticsQuerySchema }>(req).query;
+    res.json(ok(await analytics.creatorAnalytics(userId, days)));
+  }),
+);
+
+videosRouter.get(
+  '/me/analytics/business',
+  requireAuth,
+  limits.read,
+  validate({ query: analyticsQuerySchema }),
+  asyncHandler(async (req: Request, res) => {
+    const { userId } = req as AuthedRequest;
+    const { days } = valid<{ query: typeof analyticsQuerySchema }>(req).query;
+    res.json(ok(await analytics.businessAnalytics(userId, days)));
+  }),
+);
 
 /** The caller's own videos, including ones still processing. */
 videosRouter.get(
