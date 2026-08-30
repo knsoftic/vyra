@@ -109,14 +109,29 @@ export function FeedVideoItem({
   });
 
   useEffect(() => {
-    player.muted = muted;
+    // Same reason as below: a released player throws on property access, and
+    // the mute state is not worth crashing a screen over.
+    try {
+      player.muted = muted;
+    } catch {
+      // Player already gone; the next mount reads `muted` in its setup.
+    }
   }, [muted, player]);
 
   useEffect(() => {
-    if (!shouldLoad) return;
-    if (isActive && !paused) player.play();
-    else player.pause();
-  }, [isActive, paused, shouldLoad, player]);
+    // `playableUrl` is checked as well as `shouldLoad`: a video whose render has
+    // not finished has a null source, and on native, calling play() on a player
+    // with no source crashes the app rather than doing nothing. On web it was
+    // silently harmless, which is why this survived until a real device ran it.
+    if (!shouldLoad || !playableUrl) return;
+    try {
+      if (isActive && !paused) player.play();
+      else player.pause();
+    } catch {
+      // A player released mid-scroll. The poster still shows the frame, and a
+      // playback failure must never take the feed down with it.
+    }
+  }, [isActive, paused, shouldLoad, playableUrl, player]);
 
   // ── Double-tap to like, single tap to pause ──
   const lastTap = useRef(0);

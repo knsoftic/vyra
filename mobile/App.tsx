@@ -5,6 +5,7 @@ import { ThemeProvider } from './src/theme';
 import { AppStateProvider } from './src/store/AppState';
 import { SessionProvider } from './src/store/SessionState';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { useRealtimeConnection } from './src/realtime';
 
 /**
@@ -22,6 +23,9 @@ function Realtime({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* Outermost, and independent of the theme — it has to survive a failure
+          in any provider below it, including the one that supplies colours. */}
+      <ErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider>
           <SessionProvider>
@@ -33,6 +37,7 @@ export default function App() {
           </SessionProvider>
         </ThemeProvider>
       </SafeAreaProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }
