@@ -441,6 +441,57 @@ karein.
 > launch ke liye kafi. Jab barh jayen to inhi 4 fields mein koi transactional
 > provider (Brevo, Resend, Amazon SES) daal dein.
 
+### 12.1b SMS connect karein (phone number se login) — admin panel se, deploy ki zaroorat nahi
+
+App mein **"Continue with phone"** ka option hai: banda apna number likhta hai,
+usay 6 hindson ka code aata hai, aur code sahi hote hi woh **seedha login** ho
+jata hai. Agar us number ka account pehle se hai to usi mein, warna naya account
+ban kar usi mein. Alag se "sign up" ka step nahi hai — code hi asal pehchan hai.
+
+Yeh tab tak band rehta hai jab tak aap gateway na lagayen. **Aur jaan boojh kar
+band rehta hai**: agar gateway na ho to app saaf keh deti hai "SMS available
+nahi", bajaye is ke ke banda apna phone dekhta rahe jis par kabhi kuch aana hi
+nahi tha.
+
+**Admin panel → App Settings → SMS (sign-in codes)**
+
+| Field | Kya dalna hai |
+|---|---|
+| **Provider** | `Generic HTTP gateway` (Pakistani gateways ke liye) ya `Twilio` |
+| **Sender ID / From number** | Jo naam ya number message par nazar aaye — jaise `VYRA` |
+| **Default country code** | `92` — is se log `0300…` likh sakenge, `+92300…` likhna zaroori nahi |
+| **API key / secret** | Gateway wale ne jo diya. Ek dafa save karne ke baad dobara nazar nahi aata (SMTP password ki tarah); khali chhorne ka matlab "purana hi rehne do" |
+
+**Generic gateway ke liye** aur do fields:
+
+- **Gateway URL** — jaise `https://api.aapkagateway.com/send`
+- **Body / query string** — apne gateway ki documentation ke mutabiq, in
+  placeholders ke saath (yeh khud bhar jate hain):
+
+  | Placeholder | Kya banta hai |
+  |---|---|
+  | `{to}` | number, country code ke saath, bina `+` ke |
+  | `{text}` | message ka matn |
+  | `{key}` / `{secret}` | upar wali credentials |
+  | `{sender}` | Sender ID |
+
+  Misal ke taur par:
+  `api_key={key}&sender={sender}&to={to}&message={text}`
+
+  Agar body `{` se shuru ho aur sahi JSON ho to JSON bhej diya jata hai, warna
+  form-encoded.
+
+> **Default country code zaroor bharein.** Yeh khali chhorne ka matlab hai ke
+> `0300…` likhne wale ko app refuse kar degi (kyunki `0300…` kis mulk ka hai,
+> yeh server ko nahi pata — aur andaza lagana ka matlab hota ek hi bande ke do
+> alag account ban jana). `92` daal dene se dono tareeqe ek hi account par
+> jate hain.
+
+Save karne ke baad app se apne number par code manga kar dekh lein — aur yaad
+rakhein ke code **outbox** se jata hai, to aaPanel wala `vyra-outbox-drain` cron
+chalta rehna chahiye (section 11 dekhen), warna code queue mein hi baitha
+rahega.
+
 ### 12.2 Paison ki settings
 
 - **Rates & Methods** → har `REPLACE IN ADMIN` wale payment account mein apni
@@ -492,6 +543,8 @@ par install karein.
 |---|---|
 | aaPanel khud nahi khul raha | Cloud provider ka apna firewall — panel ka port wahan bhi khula hona chahiye, sirf aaPanel → Security mein nahi. |
 | API start nahi ho raha | `pm2 logs vyra-api` — woh khud batata hai `.env` ki kaunsi key ghalat hai. |
+| Phone login par "SMS available nahi" | Admin → App Settings → SMS: Provider abhi `None` hai. Gateway lagayen (12.1b). |
+| Number likhne par "country code dalein" | Admin → App Settings → SMS → **Default country code** khali hai. `92` daal dein. |
 | "Code sent" magar email nahi aayi | Admin → Notifications: transport `console` hai? Gmail lagayen (12.1). Phir aaPanel → Cron: `vyra-outbox-drain` chal raha hai? `/www/wwwlogs/vyra-outbox.log` dekhein. |
 | Admin panel: "cannot reach the API" | `admin/.env.production` mein `NEXT_PUBLIC_API_URL` ghalat (badalne ke baad rebuild karein), ya `backend/.env` ke `CORS_ORIGINS` mein admin domain nahi (phir `pm2 restart vyra-api`). |
 | Chat / live connect nahi hota | Proxy config mein WebSocket ki teen lines nahi hain (10.1-2a). |

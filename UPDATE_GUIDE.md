@@ -132,6 +132,32 @@ code. That is the entire point of rule 3.
 Migrations run in a transaction where possible; the failed one simply is not
 recorded as applied. Fix the migration file, `npm run migrate:up` again.
 
+**The guard refused to run a migration** (`✗ Refusing to run`): that is the
+data-protection validator, and it is right far more often than it is wrong.
+Read which rule it names. `no-drop-table`, `no-truncate` and the unbounded
+`DELETE`/`UPDATE` rules can never be waived — a migration that trips one of
+those is a migration that would destroy user data, and it needs rewriting.
+
+`review-type-narrowing` is the one that can be set aside, and only with
+evidence. Check what is actually stored first, for example:
+
+```bash
+mysql -u vyra -p vyra -e "SELECT MAX(CHAR_LENGTH(email)) FROM users;"
+```
+
+If it is genuinely safe, the waiver goes **in the migration file**, with the
+reason, so it stays visible in review:
+
+```sql
+-- migration-waiver: review-type-narrowing — VARCHAR(191) is unchanged; only
+-- NOT NULL becomes NULL, so no value can be truncated. Widest stored was 29.
+```
+
+A waiver written this way means the migration runs on the server without
+anybody having to remember a command-line flag. There is still a
+`--allow-narrowing` flag for a one-off, but prefer the written waiver: a flag
+typed once at a terminal leaves no record of why.
+
 **Data actually damaged** (should be impossible via this procedure): restore
 the Step-0 backup into a **new** database, compare, and recover the affected
 rows only. Never `DROP DATABASE` on the live one.
