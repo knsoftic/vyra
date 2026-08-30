@@ -1,0 +1,77 @@
+# Local development stack.
+#
+# The database is a NAMED VOLUME, never a throwaway container filesystem, so
+# `docker compose restart` and `docker compose up` keep every row. Nothing in
+# this file drops or recreates a schema.
+#
+# To stop the stack:            docker compose down
+# To stop it AND erase data:    docker compose down -v   <- destroys the volume
+# The second command is the only one here that loses data. Do not run it against
+# anything you care about.
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: vyra-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      # watch_events and impressions are range-partitioned and grow fast.
+      - --innodb-buffer-pool-size=512M
+      - --max-connections=200
+    environment:
+      MYSQL_ROOT_PASSWORD: vyra-root
+      MYSQL_DATABASE: vyra
+      MYSQL_USER: vyra
+      MYSQL_PASSWORD: vyra-dev
+    ports:
+      - "3307:3306"
+    volumes:
+      - vyra-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pvyra-root"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: vyra-redis
+    restart: unless-stopped
+    # appendonly keeps rate-limit and idempotency records across a restart.
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - vyra-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: vyra-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: vyra
+      MINIO_ROOT_PASSWORD: vyra-secret-key
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - vyra-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vyra-mysql-data:
+  vyra-redis-data:
+  vyra-minio-data:

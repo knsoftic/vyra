@@ -1,0 +1,61 @@
+{
+  "name": "vyra-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Vyra API \u2014 modular monolith (ADR-004). Express + Socket.IO, MySQL, Redis.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/backend/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "migrate:status": "tsx scripts/migrate.ts status",
+    "migrate:up": "tsx scripts/migrate.ts up",
+    "migrate:validate": "tsx scripts/migrate.ts validate",
+    "migrate:verify": "tsx scripts/migrate.ts verify",
+    "test": "node --test --test-concurrency=1 --import tsx \"test/*.test.ts\"",
+    "test:unit": "node --test --import tsx test/validate-migration.test.ts",
+    "seed:catalogue": "tsx scripts/seed-catalogue.ts",
+    "worker": "tsx src/jobs/worker.ts",
+    "worker:watch": "tsx watch src/jobs/worker.ts",
+    "smoke": "node --import tsx scripts/smoke.mjs",
+    "seed:segments": "tsx scripts/seed-segments.ts",
+    "seed": "npm run seed:catalogue && npm run seed:segments && npm run seed:ranking",
+    "seed:ranking": "tsx scripts/seed-ranking.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "seed:gifts": "tsx scripts/seed-gifts.ts",
+    "seed:monetization": "tsx scripts/seed-monetization.ts",
+    "clearing:release": "tsx scripts/release-clearing.ts",
+    "preflight": "tsx scripts/preflight.ts",
+    "outbox:drain": "tsx scripts/drain-outbox.ts",
+    "seed:admin": "tsx scripts/seed-admin.ts"
+  },
+  "dependencies": {
+    "@types/nodemailer": "^8.0.1",
+    "argon2": "^0.44.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.9.0",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.15.4",
+    "nodemailer": "^9.0.6",
+    "pino": "^10.1.0",
+    "socket.io": "^4.8.1",
+    "ulid": "^3.0.1",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.9.2",
+    "pino-pretty": "^13.1.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

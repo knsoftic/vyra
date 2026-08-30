@@ -1,0 +1,500 @@
+import {
+  CoinTransaction,
+  CoinPackage,
+  Gift,
+  Campaign,
+  CreatorAnalytics,
+  LiveStream,
+  LiveComment,
+} from '../types';
+import { users, currentUser } from './users';
+import { videos } from './videos';
+import { minutesAgo, hoursAgo, daysAgo } from '../utils/format';
+
+// ──────────────────────────────── Wallet ────────────────────────────────
+
+export const coinPackages: CoinPackage[] = [
+  { id: 'cp_1', coins: 100, bonusCoins: 0, price: 1.29, currency: 'USD' },
+  { id: 'cp_2', coins: 500, bonusCoins: 25, price: 5.99, currency: 'USD' },
+  { id: 'cp_3', coins: 1000, bonusCoins: 80, price: 11.49, currency: 'USD', isPopular: true },
+  { id: 'cp_4', coins: 2500, bonusCoins: 300, price: 27.99, currency: 'USD', discountPercent: 10 },
+  { id: 'cp_5', coins: 5000, bonusCoins: 750, price: 54.99, currency: 'USD', discountPercent: 15 },
+  { id: 'cp_6', coins: 10000, bonusCoins: 2000, price: 99.99, currency: 'USD', discountPercent: 20 },
+];
+
+/**
+ * Ledger rows. Each carries previousBalance and newBalance — the balance is derived
+ * from the ledger, never stored as a mutable number (ADR-013).
+ */
+export const transactions: CoinTransaction[] = [
+  {
+    id: 'tx_1',
+    type: 'gift_received',
+    wallet: 'live_gift',
+    description: 'Crown from @kofi.eats',
+    coins: 500,
+    previousBalance: 11980,
+    newBalance: 12480,
+    status: 'successful',
+    reference: 'GFT-8841207',
+    createdAt: hoursAgo(5),
+  },
+  {
+    id: 'tx_2',
+    type: 'promotion',
+    wallet: 'coin',
+    description: 'Promotion — "Editor launch"',
+    coins: -1200,
+    previousBalance: 13180,
+    newBalance: 11980,
+    status: 'successful',
+    reference: 'PRM-4410982',
+    createdAt: daysAgo(1),
+  },
+  {
+    id: 'tx_3',
+    type: 'purchase',
+    wallet: 'coin',
+    description: '1,000 coins + 80 bonus',
+    coins: 1080,
+    previousBalance: 12100,
+    newBalance: 13180,
+    status: 'successful',
+    reference: 'PAY-77120934',
+    createdAt: daysAgo(2),
+  },
+  {
+    id: 'tx_4',
+    type: 'gift_sent',
+    wallet: 'coin',
+    description: 'Diamond to @echo.music',
+    coins: -1500,
+    previousBalance: 13600,
+    newBalance: 12100,
+    status: 'successful',
+    reference: 'GFT-8829114',
+    createdAt: daysAgo(3),
+  },
+  {
+    id: 'tx_5',
+    type: 'gift_received',
+    wallet: 'live_gift',
+    description: 'Rose x24 during live',
+    coins: 240,
+    previousBalance: 13360,
+    newBalance: 13600,
+    status: 'successful',
+    reference: 'GFT-8801442',
+    createdAt: daysAgo(4),
+  },
+  {
+    id: 'tx_6',
+    type: 'purchase',
+    wallet: 'coin',
+    description: '2,500 coins + 300 bonus',
+    coins: 2800,
+    previousBalance: 10560,
+    newBalance: 13360,
+    status: 'successful',
+    reference: 'PAY-77098221',
+    createdAt: daysAgo(6),
+  },
+  {
+    id: 'tx_7',
+    type: 'ad_spend',
+    wallet: 'coin',
+    description: 'Campaign — "Autumn collection"',
+    coins: -900,
+    previousBalance: 11460,
+    newBalance: 10560,
+    status: 'successful',
+    reference: 'ADS-2209841',
+    createdAt: daysAgo(8),
+  },
+  {
+    id: 'tx_8',
+    type: 'purchase',
+    wallet: 'coin',
+    description: '500 coins + 25 bonus',
+    coins: 525,
+    previousBalance: 10935,
+    newBalance: 11460,
+    status: 'pending',
+    reference: 'PAY-77081190',
+    createdAt: daysAgo(9),
+  },
+  {
+    id: 'tx_10',
+    type: 'task_reward',
+    wallet: 'reward',
+    description: 'Daily task — 1,000 qualified views',
+    coins: 500,
+    previousBalance: 4320,
+    newBalance: 4820,
+    status: 'successful',
+    reference: 'TSK-9920411',
+    createdAt: hoursAgo(3),
+  },
+  {
+    id: 'tx_11',
+    type: 'referral_reward',
+    wallet: 'reward',
+    description: 'Referral reward — @pixelforge qualified',
+    coins: 100,
+    previousBalance: 4220,
+    newBalance: 4320,
+    status: 'successful',
+    reference: 'REF-4410233',
+    createdAt: hoursAgo(6),
+  },
+  {
+    id: 'tx_12',
+    type: 'reward_to_coins',
+    wallet: 'coin',
+    description: 'Converted reward balance to promotion coins',
+    coins: 2000,
+    previousBalance: 10480,
+    newBalance: 12480,
+    status: 'successful',
+    reference: 'CNV-2201984',
+    createdAt: daysAgo(1),
+  },
+  {
+    id: 'tx_13',
+    type: 'withdrawal_request',
+    wallet: 'withdrawable',
+    description: 'Withdrawal to USDT (TRC-20)',
+    coins: -12000,
+    previousBalance: 632.4,
+    newBalance: 512.4,
+    status: 'under_review',
+    reference: 'WD-4412',
+    amount: 120,
+    currency: 'USD',
+    createdAt: hoursAgo(20),
+  },
+  {
+    id: 'tx_14',
+    type: 'withdrawal_paid',
+    wallet: 'withdrawable',
+    description: 'Withdrawal paid — USDT (TRC-20)',
+    coins: -25000,
+    previousBalance: 882.4,
+    newBalance: 632.4,
+    status: 'approved',
+    reference: 'WD-4380',
+    amount: 250,
+    currency: 'USD',
+    createdAt: daysAgo(10),
+  },
+  {
+    id: 'tx_9',
+    type: 'refund',
+    wallet: 'coin',
+    description: 'Refund — failed purchase',
+    coins: 100,
+    previousBalance: 10835,
+    newBalance: 10935,
+    status: 'refunded',
+    reference: 'PAY-77044021',
+    createdAt: daysAgo(12),
+  },
+];
+
+// ───────────────────────────────── Gifts ────────────────────────────────
+
+export const gifts: Gift[] = [
+  { id: 'g_rose', name: 'Rose', icon: '🌹', coins: 10, isActive: true },
+  { id: 'g_heart', name: 'Heart', icon: '❤️', coins: 25, isActive: true },
+  { id: 'g_star', name: 'Star', icon: '⭐', coins: 50, isActive: true },
+  { id: 'g_fire', name: 'Fire', icon: '🔥', coins: 100, isActive: true, isFeatured: true },
+  { id: 'g_rocket', name: 'Rocket', icon: '🚀', coins: 250, isActive: true },
+  { id: 'g_crown', name: 'Crown', icon: '👑', coins: 500, isActive: true, isFeatured: true },
+  { id: 'g_trophy', name: 'Trophy', icon: '🏆', coins: 800, isActive: true },
+  { id: 'g_diamond', name: 'Diamond', icon: '💎', coins: 1500, isActive: true, isFeatured: true },
+  { id: 'g_castle', name: 'Castle', icon: '🏰', coins: 3000, isActive: true },
+  { id: 'g_galaxy', name: 'Galaxy', icon: '🌌', coins: 5000, isActive: true },
+];
+
+// ────────────────────────────── Campaigns ───────────────────────────────
+
+export const campaigns: Campaign[] = [
+  {
+    id: 'camp_1',
+    name: 'Editor launch',
+    objective: 'video_views',
+    status: 'active',
+    videoId: videos[11].id,
+    poster: videos[11].poster,
+    budgetCoins: 1200,
+    spentCoins: 840,
+    durationDays: 7,
+    targeting: {
+      mode: 'automatic',
+      countries: ['United States', 'United Kingdom', 'Pakistan'],
+      languages: ['English'],
+      interests: ['Technology', 'Business'],
+    },
+    results: {
+      impressions: 184200,
+      reach: 142800,
+      views: 96400,
+      clicks: 4120,
+      engagements: 12800,
+      followers: 1840,
+      profileVisits: 6200,
+    },
+    createdAt: daysAgo(3),
+  },
+  {
+    id: 'camp_2',
+    name: 'Autumn collection',
+    objective: 'website_traffic',
+    status: 'completed',
+    poster: videos[9].poster,
+    budgetCoins: 900,
+    spentCoins: 900,
+    durationDays: 5,
+    targeting: {
+      mode: 'custom',
+      countries: ['United States'],
+      cities: ['New York', 'Los Angeles'],
+      languages: ['English'],
+      interests: ['Fashion', 'Beauty'],
+      devices: ['Mobile'],
+      operatingSystems: ['iOS', 'Android'],
+      ageRange: [18, 44],
+    },
+    results: {
+      impressions: 92400,
+      reach: 71200,
+      views: 48200,
+      clicks: 6840,
+      engagements: 9100,
+      followers: 940,
+      profileVisits: 3800,
+    },
+    createdAt: daysAgo(14),
+  },
+  {
+    id: 'camp_3',
+    name: 'Community growth',
+    objective: 'followers',
+    status: 'pending_review',
+    poster: videos[4].poster,
+    budgetCoins: 600,
+    spentCoins: 0,
+    durationDays: 10,
+    targeting: { mode: 'broad', countries: ['Global'] },
+    results: {
+      impressions: 0,
+      reach: 0,
+      views: 0,
+      clicks: 0,
+      engagements: 0,
+      followers: 0,
+      profileVisits: 0,
+    },
+    createdAt: hoursAgo(4),
+  },
+  {
+    id: 'camp_4',
+    name: 'App install push',
+    objective: 'app_promotion',
+    status: 'paused',
+    poster: videos[5].poster,
+    budgetCoins: 2400,
+    spentCoins: 1180,
+    durationDays: 14,
+    targeting: {
+      mode: 'custom',
+      countries: ['Germany', 'France'],
+      languages: ['English', 'German'],
+      categories: ['Technology', 'Gaming'],
+      operatingSystems: ['Android'],
+    },
+    results: {
+      impressions: 241000,
+      reach: 188000,
+      views: 121000,
+      clicks: 14200,
+      engagements: 18400,
+      followers: 2100,
+      profileVisits: 8900,
+    },
+    createdAt: daysAgo(9),
+  },
+];
+
+export const campaignObjectives = [
+  { id: 'awareness', label: 'Awareness', icon: 'megaphone-outline', description: 'Show your video to as many people as possible' },
+  { id: 'reach', label: 'Reach', icon: 'people-outline', description: 'Maximise unique people reached' },
+  { id: 'video_views', label: 'Video Views', icon: 'play-circle-outline', description: 'Get more people watching' },
+  { id: 'engagement', label: 'Engagement', icon: 'heart-outline', description: 'More likes, comments and shares' },
+  { id: 'followers', label: 'Followers', icon: 'person-add-outline', description: 'Grow your audience' },
+  { id: 'profile_visits', label: 'Profile Visits', icon: 'person-outline', description: 'Send people to your profile' },
+  { id: 'website_traffic', label: 'Website Traffic', icon: 'globe-outline', description: 'Send people to your site' },
+  { id: 'leads', label: 'Leads', icon: 'document-text-outline', description: 'Collect enquiries' },
+  { id: 'app_promotion', label: 'App Promotion', icon: 'phone-portrait-outline', description: 'Drive app installs' },
+] as const;
+
+/** Admin-configured boost limits (Super Admin -> Boost Settings). */
+export const boostSettings = {
+  minCoins: 100,
+  maxCoins: 50000,
+  minDurationDays: 1,
+  maxDurationDays: 30,
+  /** Estimated reach formula, admin-editable. Shown to the user as a range. */
+  reachPerCoin: 118,
+};
+
+export const estimateReach = (coins: number, days: number) => {
+  const base = coins * boostSettings.reachPerCoin;
+  const spread = 0.22;
+  return {
+    min: Math.round(base * (1 - spread)),
+    max: Math.round(base * (1 + spread)),
+    perDay: Math.round(base / Math.max(1, days)),
+  };
+};
+
+// ───────────────────────────────── Live ─────────────────────────────────
+
+export const liveStreams: LiveStream[] = [
+  {
+    id: 'live_1',
+    host: users[2],
+    title: 'Engine rebuild — final assembly',
+    category: 'Cars',
+    thumbnail: 'https://picsum.photos/seed/live1/540/960',
+    viewers: 12840,
+    likes: 184000,
+    coinsEarned: 24800,
+    startedAt: minutesAgo(74),
+    guests: [users[10]],
+  },
+  {
+    id: 'live_2',
+    host: users[11],
+    title: 'Making a beat from scratch — take requests',
+    category: 'Music',
+    thumbnail: 'https://picsum.photos/seed/live2/540/960',
+    viewers: 6210,
+    likes: 92000,
+    coinsEarned: 11400,
+    startedAt: minutesAgo(38),
+  },
+  {
+    id: 'live_3',
+    host: users[6],
+    title: 'Sunrise walk in Hunza',
+    category: 'Travel',
+    thumbnail: 'https://picsum.photos/seed/live3/540/960',
+    viewers: 3480,
+    likes: 41000,
+    coinsEarned: 5200,
+    startedAt: minutesAgo(112),
+  },
+  {
+    id: 'live_4',
+    host: users[3],
+    title: 'Live workout — join in',
+    category: 'Sports',
+    thumbnail: 'https://picsum.photos/seed/live4/540/960',
+    viewers: 940,
+    likes: 8200,
+    coinsEarned: 640,
+    startedAt: minutesAgo(21),
+  },
+  {
+    id: 'live_5',
+    host: users[1],
+    title: 'Code review of your projects',
+    category: 'Technology',
+    thumbnail: 'https://picsum.photos/seed/live5/540/960',
+    viewers: 8940,
+    likes: 112000,
+    coinsEarned: 18200,
+    startedAt: minutesAgo(56),
+    guests: [users[7]],
+  },
+  {
+    id: 'live_6',
+    host: users[5],
+    title: 'Night market tour',
+    category: 'Food',
+    thumbnail: 'https://picsum.photos/seed/live6/540/960',
+    viewers: 2140,
+    likes: 24000,
+    coinsEarned: 3100,
+    startedAt: minutesAgo(9),
+  },
+];
+
+export const liveComments: LiveComment[] = [
+  { id: 'lc_1', author: users[7], text: 'joined', createdAt: minutesAgo(3), kind: 'join' },
+  { id: 'lc_2', author: users[5], text: 'This is looking incredible', createdAt: minutesAgo(3) },
+  { id: 'lc_3', author: users[9], text: 'sent Rose', createdAt: minutesAgo(2), kind: 'gift', giftName: 'Rose' },
+  { id: 'lc_4', author: users[3], text: 'How long did the whole build take?', createdAt: minutesAgo(2) },
+  { id: 'lc_5', author: users[10], text: 'started following', createdAt: minutesAgo(2), kind: 'follow' },
+  { id: 'lc_6', author: users[1], text: 'The torque spec on those bolts is 42Nm by the way', createdAt: minutesAgo(1) },
+  { id: 'lc_7', author: users[6], text: 'sent Crown', createdAt: minutesAgo(1), kind: 'gift', giftName: 'Crown' },
+  { id: 'lc_8', author: users[8], text: 'Watching from Lisbon', createdAt: minutesAgo(1) },
+  { id: 'lc_9', author: users[4], text: 'Can you show the wiring again?', createdAt: minutesAgo(0) },
+  { id: 'lc_10', author: users[11], text: 'first time catching you live', createdAt: minutesAgo(0) },
+];
+
+export const liveCategories = [
+  'Gaming', 'Music', 'Technology', 'Cars', 'Travel', 'Food', 'Sports', 'Beauty', 'Education', 'Just Chatting',
+];
+
+// ─────────────────────────────── Analytics ──────────────────────────────
+
+const series = (values: number[], labels: string[]) =>
+  values.map((value, i) => ({ label: labels[i], value }));
+
+const days7 = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+export const creatorAnalytics: CreatorAnalytics = {
+  followers: currentUser.followers,
+  followerGrowth: 4820,
+  views: 1284000,
+  likes: 214000,
+  watchTimeHours: 18420,
+  avgWatchSeconds: 22.4,
+  completionRate: 61.2,
+  rewatchRate: 14.8,
+  shares: 18400,
+  saves: 42100,
+  profileVisits: 68400,
+  giftsCoins: 24800,
+  viewsSeries: series([84000, 112000, 96000, 148000, 210000, 268000, 166000], days7),
+  followerSeries: series([320, 410, 380, 620, 940, 1180, 970], days7),
+  audienceCategories: [
+    { label: 'Technology', percent: 38 },
+    { label: 'Business', percent: 22 },
+    { label: 'Gaming', percent: 16 },
+    { label: 'Education', percent: 13 },
+    { label: 'Cars', percent: 11 },
+  ],
+  topVideos: videos.slice(0, 5),
+};
+
+export const businessAnalytics = {
+  profileViews: 84200,
+  websiteClicks: 12400,
+  ctaClicks: 8900,
+  leads: 620,
+  followerGrowth: 3240,
+  adSpendCoins: 4480,
+  costPerResult: 0.42,
+  reachSeries: series([12000, 18000, 15000, 24000, 31000, 42000, 28000], days7),
+  clickSeries: series([840, 1120, 960, 1480, 2100, 2840, 1900], days7),
+  topLocations: [
+    { label: 'United States', percent: 34 },
+    { label: 'United Kingdom', percent: 18 },
+    { label: 'Germany', percent: 12 },
+    { label: 'Pakistan', percent: 11 },
+    { label: 'India', percent: 9 },
+  ],
+};

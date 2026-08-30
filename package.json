@@ -1,0 +1,26 @@
+{
+  "name": "vyra-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vyra \u2014 short-video social platform. Mobile app, Super Admin panel, backend and ML services.",
+  "scripts": {
+    "mobile": "npm --prefix mobile start",
+    "mobile:android": "npm --prefix mobile run android",
+    "mobile:ios": "npm --prefix mobile run ios",
+    "mobile:web": "npm --prefix mobile run web",
+    "mobile:typecheck": "npm --prefix mobile run typecheck",
+    "admin": "npm --prefix admin run dev",
+    "admin:build": "npm --prefix admin run build",
+    "admin:typecheck": "npm --prefix admin run typecheck",
+    "install:all": "npm --prefix mobile install && npm --prefix admin install && npm --prefix backend install",
+    "typecheck": "npm run mobile:typecheck && npm run admin:typecheck && npm run backend:typecheck",
+    "backend": "npm --prefix backend run dev",
+    "backend:typecheck": "npm --prefix backend run typecheck",
+    "backend:test": "npm --prefix backend test",
+    "migrate:status": "npm --prefix backend run migrate:status",
+    "migrate:up": "npm --prefix backend run migrate:up",
+    "migrate:validate": "npm --prefix backend run migrate:validate",
+    "test": "npm run backend:test",
+    "smoke": "npm --prefix backend run smoke"
+  }
+}

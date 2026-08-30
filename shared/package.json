@@ -1,0 +1,11 @@
+{
+  "name": "@vyra/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "API contracts shared by the Vyra backend, mobile app and admin panel. Types only — no build step, every consumer imports the TypeScript source.",
+  "exports": {
+    ".": "./contracts/index.ts",
+    "./contracts/*": "./contracts/*"
+  }
+}
