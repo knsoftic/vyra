@@ -105,12 +105,19 @@ pm2 restart vyra-api vyra-worker vyra-admin
 Or, in one command that cannot have a step left out of it:
 
 ```bash
-cd /var/www/vyra && git pull && cd backend && npm run deploy && pm2 restart all
+cd /var/www/vyra && git pull && npm run deploy && pm2 restart all
 ```
 
-`npm run deploy` is install, build, migrate and preflight in that order. It
-exists because the sequence is easy to write out by hand and easy to write out
-wrong — leaving out the build is silent, and leaving out the migrations is not.
+`npm run deploy` runs from the repository root and covers **both** applications:
+install and build the backend, install and build the admin panel, then migrate
+and preflight.
+
+It is run from the root for a reason. A backend-only version of this command
+existed first, and the admin panel then served a build from before its Add
+buttons were written — the operator could see the Filters & Effects list and had
+no way to add anything to it, with nothing in any log to suggest why. Both apps
+are compiled, so both have to be built, and one command is the only way that
+stays true.
 
 ### Step 7 — Verify
 

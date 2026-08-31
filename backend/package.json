@@ -32,7 +32,7 @@
     "preflight": "tsx scripts/preflight.ts",
     "outbox:drain": "tsx scripts/drain-outbox.ts",
     "seed:admin": "tsx scripts/seed-admin.ts",
-    "deploy": "npm ci && npm run build && npm run migrate:up && npm run preflight"
+    "deploy:backend": "npm ci && npm run build && npm run migrate:up && npm run preflight"
   },
   "dependencies": {
     "@types/nodemailer": "^8.0.1",

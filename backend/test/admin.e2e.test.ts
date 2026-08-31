@@ -432,3 +432,47 @@ test('a payment method can be added — the preflight blocker is fixable in the 
 
   await execute('DELETE FROM payment_methods WHERE slug LIKE ?', [`${slug}%`]).catch(() => undefined);
 });
+
+test('a filter and an effect can be added from the panel', async () => {
+  const admin = await registerAdmin();
+  const slug = `e2e_fx_${randomBytes(4).toString('hex')}`;
+
+  // The two kinds the Filters & Effects screen exists to manage.
+  for (const [kind, name] of [['filter', 'E2E Warm Glow'], ['effect', 'E2E Shake']] as const) {
+    const created = await api<{ id: number }>(
+      'POST', '/api/v1/admin/creative',
+      {
+        values: {
+          kind,
+          slug: `${slug}_${kind}`,
+          name,
+          category: 'colour',
+          params: '{"previewColor":"#FFB067","intensity":70}',
+          sort_order: 900,
+          is_enabled: true,
+        },
+      },
+      admin.token,
+    );
+    assert.equal(created.status, 201, `${kind}: ${JSON.stringify(created.body.error)}`);
+  }
+
+  // And they come back in the list the panel reads, so an operator sees what
+  // they just added rather than having to trust that it worked.
+  const list = await api<{ items: { slug: string; kind: string }[] }>(
+    'GET', '/api/v1/admin/creative', undefined, admin.token,
+  );
+  assert.equal(list.status, 200);
+  const mine = list.body.data!.items.filter((row) => row.slug.startsWith(slug));
+  assert.equal(mine.length, 2, 'both are listed');
+
+  // The same slug twice is a conflict, not a silent second row.
+  const duplicate = await api(
+    'POST', '/api/v1/admin/creative',
+    { values: { kind: 'filter', slug: `${slug}_filter`, name: 'Again' } },
+    admin.token,
+  );
+  assert.equal(duplicate.status, 409);
+
+  await execute('DELETE FROM creative_assets WHERE slug LIKE ?', [`${slug}%`]).catch(() => undefined);
+});

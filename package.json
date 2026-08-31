@@ -2,7 +2,7 @@
   "name": "vyra-platform",
   "version": "0.1.0",
   "private": true,
-  "description": "Vyra \u2014 short-video social platform. Mobile app, Super Admin panel, backend and ML services.",
+  "description": "Vyra — short-video social platform. Mobile app, Super Admin panel, backend and ML services.",
   "scripts": {
     "mobile": "npm --prefix mobile start",
     "mobile:android": "npm --prefix mobile run android",
@@ -21,6 +21,7 @@
     "migrate:up": "npm --prefix backend run migrate:up",
     "migrate:validate": "npm --prefix backend run migrate:validate",
     "test": "npm run backend:test",
-    "smoke": "npm --prefix backend run smoke"
+    "smoke": "npm --prefix backend run smoke",
+    "deploy": "npm --prefix backend ci && npm --prefix backend run build && npm --prefix admin ci && npm --prefix admin run build && npm --prefix backend run migrate:up && npm --prefix backend run preflight"
   }
 }
