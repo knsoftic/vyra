@@ -176,20 +176,40 @@ async function checkMigrations(): Promise<void> {
  * paid into a placeholder account is money that goes nowhere.
  */
 async function checkPaymentConfiguration(): Promise<void> {
-  const placeholders = await query<{ label: string; account_number: string }>(
-    `SELECT label, account_number FROM payment_methods
+  /*
+   * Both fields are read, and the message names the one still unset.
+   *
+   * It used to list only the method — "Easypaisa, JazzCash, Bank transfer still
+   * have placeholder details" — which is true and not actionable: an operator
+   * who has carefully filled in all three account numbers has no way to tell
+   * that it is the account *name* still holding the seeded value, and reads the
+   * same failure after fixing the thing they were told about.
+   */
+  const rows = await query<{ label: string; account_name: string; account_number: string }>(
+    `SELECT label, account_name, account_number FROM payment_methods
       WHERE is_enabled = 1
         AND (account_name LIKE '%REPLACE%' OR account_number LIKE '%REPLACE%'
           OR account_number LIKE '0000%')`,
   ).catch(() => []);
 
-  if (placeholders.length > 0) {
+  if (rows.length > 0) {
+    const detail = rows
+      .map((row) => {
+        const unset: string[] = [];
+        if (/REPLACE/i.test(row.account_name ?? '')) unset.push('account name');
+        if (/REPLACE/i.test(row.account_number ?? '') || /^0000/.test(row.account_number ?? '')) {
+          unset.push('account number');
+        }
+        return `${row.label} (${unset.join(' and ') || 'account details'})`;
+      })
+      .join(', ');
+
     record(
       'Payment accounts',
       'fail',
-      `${placeholders.length} enabled method(s) still have placeholder details: ` +
-        placeholders.map((p) => p.label).join(', ') +
-        '. Buyers would send money nowhere.',
+      `${rows.length} enabled method(s) still hold seeded values — ${detail}. ` +
+        'Set them in Admin \u2192 Rates & Methods, or switch the method off. ' +
+        'Buyers would send money nowhere.',
     );
   } else {
     record('Payment accounts', 'pass', 'No placeholder account details on enabled methods.');
