@@ -83,9 +83,16 @@ The API keeps serving throughout — additive migrations do not break it.
 ```bash
 cd /var/www/vyra
 git checkout main && git pull
-cd backend && npm ci
+cd backend && npm ci && npm run build
 cd ../admin && npm ci && npm run build
 ```
+
+**The backend build is not optional.** PM2 runs `node dist/backend/src/server.js`
+— compiled output, not the TypeScript sources. Pulling new code and restarting
+without building restarts the *previous* build, and the symptom is confusing
+rather than obvious: the server is up, old routes answer normally, and only the
+routes added since the last build return 404. This step was missing from this
+guide once, and that is exactly what happened.
 
 ### Step 6 — Preflight, then restart
 
@@ -94,6 +101,16 @@ cd /var/www/vyra/backend
 NODE_ENV=production npm run preflight     # exit 1 = do NOT restart; investigate
 pm2 restart vyra-api vyra-worker vyra-admin
 ```
+
+Or, in one command that cannot have a step left out of it:
+
+```bash
+cd /var/www/vyra && git pull && cd backend && npm run deploy && pm2 restart all
+```
+
+`npm run deploy` is install, build, migrate and preflight in that order. It
+exists because the sequence is easy to write out by hand and easy to write out
+wrong — leaving out the build is silent, and leaving out the migrations is not.
 
 ### Step 7 — Verify
 
